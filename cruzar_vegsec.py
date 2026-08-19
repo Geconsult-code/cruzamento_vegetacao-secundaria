@@ -78,8 +78,7 @@ GPKG_VEGSEC = os.path.join(
 GPKG_SAIDA = os.path.join(PASTA_BASE, "vegsec_x_APP_RL_AUR.gpkg")
 
 # Deixe vazio para TODOS os estados; ou liste siglas (ex.: ["AC"]) para validar.
-SOMENTE_ESTES: list[str] = ["AM"]
-ANEXAR = True
+SOMENTE_ESTES: list[str] = []
 
 # ANEXAR = True: não apaga a saída; acrescenta os estados de SOMENTE_ESTES às
 # camadas já existentes (use para completar estados que faltaram, ex.: ["AM"]).
@@ -121,19 +120,48 @@ def area_ha_geodesica(geom) -> float:
     return abs(a) / 10_000.0  # m² -> ha
 
 
+def _reparar(geom):
+    """Repara uma geometria inválida sem quebrar.
+
+    Tenta make_valid; se ele lançar exceção (acontece com algumas geometrias
+    do AM em certas versões do GEOS), cai para buffer(0); se ainda falhar,
+    devolve None (a geometria é descartada — são pouquíssimas e irreparáveis).
+    """
+    if geom is None or geom.is_empty:
+        return None
+    if geom.is_valid:
+        return geom
+    try:
+        return make_valid(geom)
+    except Exception:
+        pass
+    try:
+        g = geom.buffer(0)
+        if g is not None and not g.is_empty:
+            return g
+    except Exception:
+        pass
+    return None
+
+
 def limpar(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Garante 2D válido e CRS de trabalho."""
+    """Garante 2D válido e CRS de trabalho (reparo resiliente)."""
     if gdf.crs is None:
         gdf = gdf.set_crs(CRS_TRAB)
     elif str(gdf.crs).upper() not in ("EPSG:4674",):
         gdf = gdf.to_crs(CRS_TRAB)
     gdf = gdf[~gdf.geometry.is_empty & gdf.geometry.notna()].copy()
-    inval = ~gdf.geometry.is_valid
-    if inval.any():
-        gdf.loc[inval, "geometry"] = gdf.loc[inval, "geometry"].apply(make_valid)
-    # reduz cada geometria à sua parte poligonal (evita 'mixed-dimension' no overlay)
+    # repara geometria a geometria, sem deixar uma inválida derrubar o estado
+    n_antes = len(gdf)
+    gdf["geometry"] = gdf.geometry.apply(_reparar)
+    gdf = gdf[gdf.geometry.notna()].copy()
+    # reduz cada geometria à sua parte poligonal (evita 'mixed-dimension')
     gdf["geometry"] = gdf.geometry.apply(_so_poligonos)
     gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty].copy()
+    n_descartadas = n_antes - len(gdf)
+    if n_descartadas:
+        print(f"       (limpeza: {n_descartadas} geometria(s) irreparável(is) "
+              f"descartada(s))", flush=True)
     return gdf
 
 
@@ -190,7 +218,19 @@ def cruzar_estado(uf: str, gpkg_estado: str, veg_layers: dict[str, str],
             geom_veg = veg_slim.geometry.to_dict()
             registros = []
             for _, p in pares.iterrows():
-                g = _so_poligonos(geom_tema[p["_it"]].intersection(geom_veg[p["_iv"]]))
+                try:
+                    bruta = geom_tema[p["_it"]].intersection(geom_veg[p["_iv"]])
+                except Exception:
+                    # interseção de um par específico falhou; tenta reparar antes
+                    try:
+                        a = _reparar(geom_tema[p["_it"]])
+                        b = _reparar(geom_veg[p["_iv"]])
+                        if a is None or b is None:
+                            continue
+                        bruta = a.intersection(b)
+                    except Exception:
+                        continue
+                g = _so_poligonos(bruta)
                 if g is None or g.is_empty:
                     continue
                 reg = {"geometry": g}
