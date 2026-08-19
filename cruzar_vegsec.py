@@ -37,6 +37,37 @@ import pandas as pd
 import pyogrio
 from pyproj import Geod
 from shapely import make_valid
+from shapely.geometry import (
+    Polygon, MultiPolygon, GeometryCollection)
+
+
+def _so_poligonos(geom):
+    """Devolve só a parte poligonal de uma geometria (descarta linha/ponto).
+
+    make_valid pode transformar um polígono defeituoso numa coleção mista
+    (polígono + linha/ponto). O overlay do GeoPandas recusa dimensão mista,
+    então aqui reduzimos a geometria à sua parte de área.
+    """
+    if geom is None or geom.is_empty:
+        return None
+    if isinstance(geom, (Polygon, MultiPolygon)):
+        return geom
+    if isinstance(geom, GeometryCollection):
+        polis = [g for g in geom.geoms if isinstance(g, (Polygon, MultiPolygon))]
+        if not polis:
+            return None
+        if len(polis) == 1:
+            return polis[0]
+        # une tudo num MultiPolygon
+        partes = []
+        for p in polis:
+            if isinstance(p, MultiPolygon):
+                partes.extend(p.geoms)
+            else:
+                partes.append(p)
+        return MultiPolygon(partes)
+    # linha/ponto puros: sem área, descarta
+    return None
 
 # =============================== CONFIG ===============================
 PASTA_BASE = r"C:\Users\User\Dropbox\#CONSULTANCY\PLANAVEG\GEODATABASE\INCRA-CAR"
@@ -47,7 +78,12 @@ GPKG_VEGSEC = os.path.join(
 GPKG_SAIDA = os.path.join(PASTA_BASE, "vegsec_x_APP_RL_AUR.gpkg")
 
 # Deixe vazio para TODOS os estados; ou liste siglas (ex.: ["AC"]) para validar.
-SOMENTE_ESTES: list[str] = ["AC"]
+SOMENTE_ESTES: list[str] = []
+
+# ANEXAR = True: não apaga a saída; acrescenta os estados de SOMENTE_ESTES às
+# camadas já existentes (use para completar estados que faltaram, ex.: ["AM"]).
+# ANEXAR = False: regrava a saída do zero (use para rodar tudo de novo).
+ANEXAR = False
 
 # Mapeia o nome da camada temática -> rótulo de tipo e camada de saída.
 TEMATICAS = {
@@ -94,6 +130,9 @@ def limpar(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     inval = ~gdf.geometry.is_valid
     if inval.any():
         gdf.loc[inval, "geometry"] = gdf.loc[inval, "geometry"].apply(make_valid)
+    # reduz cada geometria à sua parte poligonal (evita 'mixed-dimension' no overlay)
+    gdf["geometry"] = gdf.geometry.apply(_so_poligonos)
+    gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty].copy()
     return gdf
 
 
@@ -198,7 +237,7 @@ def main() -> int:
             falhas.append((uf, str(e)))
 
     # grava a saída (uma camada por tipo, todos os estados juntos)
-    if os.path.exists(GPKG_SAIDA):
+    if not ANEXAR and os.path.exists(GPKG_SAIDA):
         os.remove(GPKG_SAIDA)
     total_feicoes = 0
     for cam_saida, partes in acumulador.items():
@@ -206,6 +245,16 @@ def main() -> int:
             continue
         junto = gpd.GeoDataFrame(pd.concat(partes, ignore_index=True),
                                  crs=CRS_TRAB)
+        # no modo anexar, se a camada já existe, concatena com o que há nela
+        modo = "w"
+        if ANEXAR and os.path.exists(GPKG_SAIDA):
+            try:
+                existente = gpd.read_file(GPKG_SAIDA, layer=cam_saida)
+                junto = gpd.GeoDataFrame(
+                    pd.concat([existente, junto], ignore_index=True),
+                    crs=CRS_TRAB)
+            except Exception:
+                pass  # camada ainda não existe no arquivo; grava nova
         junto.to_file(GPKG_SAIDA, layer=cam_saida, driver="GPKG")
         total_feicoes += len(junto)
         print(f"\n  gravado {cam_saida}: {len(junto)} polígonos "
