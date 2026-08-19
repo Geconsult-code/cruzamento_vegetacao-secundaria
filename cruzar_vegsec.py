@@ -78,7 +78,8 @@ GPKG_VEGSEC = os.path.join(
 GPKG_SAIDA = os.path.join(PASTA_BASE, "vegsec_x_APP_RL_AUR.gpkg")
 
 # Deixe vazio para TODOS os estados; ou liste siglas (ex.: ["AC"]) para validar.
-SOMENTE_ESTES: list[str] = []
+SOMENTE_ESTES: list[str] = ["AM"]
+ANEXAR = True
 
 # ANEXAR = True: não apaga a saída; acrescenta os estados de SOMENTE_ESTES às
 # camadas já existentes (use para completar estados que faltaram, ex.: ["AM"]).
