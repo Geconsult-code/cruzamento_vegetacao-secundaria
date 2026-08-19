@@ -169,27 +169,45 @@ def cruzar_estado(uf: str, gpkg_estado: str, veg_layers: dict[str, str],
             if len(veg) == 0:
                 continue
 
-            # interseção real (overlay); mantém atributos dos dois lados
-            cols_tema = ["cod_imovel", "geometry"]
-            cols_tema = [c for c in cols_tema if c in tema.columns] + ["geometry"]
-            tema_slim = tema[list(dict.fromkeys(cols_tema))].copy()
+            # interseção via sjoin + interseção par a par (imune a
+            # 'mixed-dimension': controlamos e filtramos cada resultado).
+            cols_tema = [c for c in ["cod_imovel"] if c in tema.columns]
+            tema_slim = tema[cols_tema + ["geometry"]].copy()
+            tema_slim = tema_slim.reset_index(drop=True)
+            tema_slim["_it"] = tema_slim.index
             veg_cols = [c for c in ["CLASSE", "ANO"] if c in veg.columns]
-            veg_slim = veg[veg_cols + ["geometry"]].copy()
+            veg_slim = veg[veg_cols + ["geometry"]].copy().reset_index(drop=True)
+            veg_slim["_iv"] = veg_slim.index
 
-            inter = gpd.overlay(tema_slim, veg_slim, how="intersection",
-                                keep_geom_type=True)
-            if len(inter) == 0:
+            # pares que realmente se intersectam (usa índice espacial)
+            pares = gpd.sjoin(tema_slim, veg_slim, how="inner",
+                              predicate="intersects")
+            if len(pares) == 0:
                 continue
+
+            geom_tema = tema_slim.geometry.to_dict()
+            geom_veg = veg_slim.geometry.to_dict()
+            registros = []
+            for _, p in pares.iterrows():
+                g = _so_poligonos(geom_tema[p["_it"]].intersection(geom_veg[p["_iv"]]))
+                if g is None or g.is_empty:
+                    continue
+                reg = {"geometry": g}
+                if "cod_imovel" in tema_slim.columns:
+                    reg["cod_imovel"] = p.get("cod_imovel")
+                if "CLASSE" in veg_slim.columns:
+                    reg["classe"] = p.get("CLASSE")
+                if "ANO" in veg_slim.columns:
+                    reg["ano"] = p.get("ANO")
+                registros.append(reg)
+            if not registros:
+                continue
+            inter = gpd.GeoDataFrame(registros, geometry="geometry", crs=CRS_TRAB)
 
             inter["uf"] = uf
             inter["tipo"] = tipo
             inter["bioma"] = bioma
             inter["area_ha"] = inter.geometry.apply(area_ha_geodesica)
-            # normaliza nomes de colunas da vegetação
-            if "CLASSE" in inter.columns:
-                inter = inter.rename(columns={"CLASSE": "classe"})
-            if "ANO" in inter.columns:
-                inter = inter.rename(columns={"ANO": "ano"})
 
             cols_final = ["uf", "cod_imovel", "tipo", "bioma", "classe", "ano",
                           "area_ha", "geometry"]
