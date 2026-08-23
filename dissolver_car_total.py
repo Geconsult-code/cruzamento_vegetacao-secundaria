@@ -246,48 +246,82 @@ def main():
     else:
         categorias_por_uf = {}
 
-    esperado = {"analisado", "nao_analisado"}
-    ufs_completas = {
-        uf for uf, cats in categorias_por_uf.items()
-        if esperado.issubset(cats) and uf not in REFAZER
-    }
+    def categorias_esperadas(uf):
+        # nem toda UF tem as duas categorias na origem (ex.: BA tem 0
+        # imoveis "Analisado" -> nunca existe BA_analisados.gpkg; isso e
+        # dado real, nao falha). So exige na saida as categorias cujo
+        # arquivo de origem realmente existe.
+        pasta = PASTA_BASE / f"_saida_{uf}"
+        esp = set()
+        if (pasta / ARQ_ANALISADO.format(uf=uf)).exists():
+            esp.add("analisado")
+        if (pasta / ARQ_NAO_ANALISADO.format(uf=uf)).exists():
+            esp.add("nao_analisado")
+        return esp
+
+    ufs_completas = set()
+    for uf in ufs:
+        if uf in REFAZER:
+            continue
+        cats_presentes = categorias_por_uf.get(uf, set())
+        if categorias_esperadas(uf).issubset(cats_presentes):
+            ufs_completas.add(uf)
     pendentes = [uf for uf in ufs if uf not in ufs_completas]
 
     print(f"UFs disponiveis: {len(ufs_disponiveis)} | a processar: {len(pendentes)} "
           f"| ja completas (puladas): {len(set(ufs) & ufs_completas)}")
 
-    novos_resultados = []
     falhas = []
+    atual = existente  # GeoDataFrame acumulado, gravado no disco a cada UF concluida
 
-    for uf in pendentes:
-        pasta = PASTA_BASE / f"_saida_{uf}"
-        if not pasta.exists():
-            print(f"  [{uf}] pasta nao encontrada: {pasta}")
-            falhas.append(uf)
-            continue
-        try:
-            r = processar_uf(uf, pasta)
-            novos_resultados.extend(r)
-        except Exception as e:
-            print(f"  [{uf}] ERRO: {e}")
-            traceback.print_exc()
-            falhas.append(uf)
+    def gravar(atual_gdf):
+        atual_gdf = atual_gdf.sort_values(["uf", "categoria"]).reset_index(drop=True)
+        atual_gdf.to_file(SAIDA, layer=CAMADA_SAIDA, driver="GPKG")
+        return atual_gdf
 
-    if not novos_resultados:
-        print("\nNada novo para gravar.")
+    try:
+        for uf in pendentes:
+            pasta = PASTA_BASE / f"_saida_{uf}"
+            if not pasta.exists():
+                print(f"  [{uf}] pasta nao encontrada: {pasta}")
+                falhas.append(uf)
+                continue
+            try:
+                r = processar_uf(uf, pasta)
+            except Exception as e:
+                print(f"  [{uf}] ERRO: {e}")
+                traceback.print_exc()
+                falhas.append(uf)
+                continue
+
+            if not r:
+                print(f"  [{uf}] nada a gravar (sem resultados)")
+                continue
+
+            # GRAVA IMEDIATAMENTE ao terminar a UF -- se o processo for
+            # interrompido (Ctrl+C, falta de energia, VS Code travar) depois
+            # disso, o progresso ate aqui fica salvo; so essa UF (ou a que
+            # estiver em andamento) precisaria ser refeita.
+            novo_gdf = gpd.GeoDataFrame(r, geometry="geometry", crs="EPSG:4674")
+            if atual is not None:
+                atual = atual[atual["uf"] != uf]
+                atual = pd.concat([atual, novo_gdf], ignore_index=True)
+                atual = gpd.GeoDataFrame(atual, geometry="geometry", crs="EPSG:4674")
+            else:
+                atual = novo_gdf
+            atual = gravar(atual)
+            print(f"  [{uf}] gravado em disco ({len(atual)} feicoes no total ate agora)")
+    except KeyboardInterrupt:
+        print("\nInterrompido pelo usuario (Ctrl+C). O que ja tinha sido processado "
+              "ate a ultima UF concluida ja esta salvo em disco. Rode o script de novo "
+              "para continuar de onde parou.")
+        raise
+
+    if atual is None:
+        print("\nNada foi gravado (nenhuma UF pendente teve resultado).")
     else:
-        novo_gdf = gpd.GeoDataFrame(novos_resultados, geometry="geometry", crs="EPSG:4674")
-        ufs_novas = set(novo_gdf["uf"])
-        if existente is not None:
-            existente_restante = existente[~existente["uf"].isin(ufs_novas)]
-            final = pd.concat([existente_restante, novo_gdf], ignore_index=True)
-            final = gpd.GeoDataFrame(final, geometry="geometry", crs="EPSG:4674")
-        else:
-            final = novo_gdf
-        final = final.sort_values(["uf", "categoria"]).reset_index(drop=True)
-        final.to_file(SAIDA, layer=CAMADA_SAIDA, driver="GPKG")
-        print(f"\nGravado: {SAIDA} (camada {CAMADA_SAIDA}), {len(final)} feicoes")
-        print(final[["uf", "categoria", "n_imoveis_origem", "area_ha"]].to_string(index=False))
+        print(f"\nSaida final: {SAIDA} (camada {CAMADA_SAIDA}), {len(atual)} feicoes")
+        print(atual[["uf", "categoria", "n_imoveis_origem", "area_ha"]].to_string(index=False))
 
     if falhas:
         print(f"\nUFs com falha: {falhas}")
