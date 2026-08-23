@@ -82,6 +82,7 @@ GPKG_SAIDA = os.path.join(PASTA_BASE, "vegsec_x_APP_RL_AUR.gpkg")
 # ANEXAR = True: não apaga a saída; acrescenta os estados de SOMENTE_ESTES às
 # camadas já existentes (use para completar estados que faltaram, ex.: ["AM"]).
 # ANEXAR = False: regrava a saída do zero (use para rodar tudo de novo).
+SOMENTE_ESTES: list[str] = []
 ANEXAR = False
 
 # Mapeia o nome da camada temática -> rótulo de tipo e camada de saída.
