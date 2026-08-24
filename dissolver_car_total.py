@@ -43,10 +43,19 @@ UFs que ainda nao tem as DUAS categorias completas na saida (ou as listadas
 em REFAZER) -- nao refaz o que ja foi gravado. As duas categorias de uma UF
 sao sempre (re)processadas juntas, porque o recorte do nao_analisado
 depende do analisado da mesma UF.
+
+Processa ate MAX_WORKERS UFs em paralelo (threads -- as operacoes do
+shapely/GEOS liberam o GIL, entao isso usa nucleos de verdade); so a
+gravacao no gpkg fica serializada. area_ha_geodesica() nunca retorna NaN
+silenciosamente: se o pyproj devolver NaN (pode acontecer em geometrias
+gigantes pos-recorte, artefato raro de coordenada degenerada), tenta
+reparar e avisa no console.
 """
 
+import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import geopandas as gpd
@@ -71,7 +80,17 @@ CAMADA_SAIDA = "CAR_total_UF"
 
 SOMENTE_ESTES = []   # ex.: ['AC', 'PA'] -- vazio = todos os estados encontrados (pastas _saida_*)
 PULAR = ["BA"]       # UFs a pular (BA pulada por ora -- e o maior/mais lento; roda-se depois sozinha)
-REFAZER = []         # UFs para reprocessar (as duas categorias) mesmo se ja estiverem na saida
+REFAZER = ["MA"]     # UFs para reprocessar (as duas categorias) mesmo se ja estiverem na saida
+                     # -- MA ja esta na saida mas com area_ha = NaN em nao_analisado (bug antigo,
+                     # ja corrigido); precisa refazer pra pegar o valor certo
+
+# quantas UFs processar AO MESMO TEMPO (threads). As operacoes pesadas do
+# shapely/GEOS liberam o GIL do Python, entao isso realmente roda em
+# paralelo nos nucleos disponiveis (nao e so IO) -- testado: 2 dissolves
+# simultaneos em 2 nucleos levaram ~metade do tempo de rodar em sequencia.
+# Ajuste conforme os nucleos/RAM da sua maquina; UFs grandes (MG/MT/PA/SP)
+# consomem bastante memoria cada uma, entao nao exagere.
+MAX_WORKERS = 4
 
 ARQ_ANALISADO = "{uf}_analisados.gpkg"
 ARQ_NAO_ANALISADO = "{uf}_trabalho.gpkg"
@@ -123,10 +142,71 @@ def _reparar(geom):
     return _so_poligonos(reparada)
 
 
-def area_ha_geodesica(geom):
+def _tem_coordenada_invalida(geom):
+    """Detecta NaN/Inf em qualquer vertice -- overlays (difference/union)
+    envolvendo geometrias com centenas de milhares de vertices raramente
+    podem produzir um vertice degenerado (NaN) sem lancar excecao nenhuma;
+    o pyproj tambem NAO lanca excecao nesse caso, so retorna area=NaN
+    silenciosamente. Foi assim que a area de MA/nao_analisado saiu 'nan'."""
+    if geom is None or geom.is_empty:
+        return False
+    try:
+        coords = shapely.get_coordinates(geom)
+        return bool(coords.size) and not np.isfinite(coords).all()
+    except Exception:
+        return False
+
+
+def _sanitizar_para_area(geom, contexto):
+    """Remove/repara coordenadas invalidas antes do calculo de area. Tenta
+    buffer(0) na geometria inteira primeiro (corrige a maioria dos casos);
+    se ainda sobrar problema, descarta so as partes (poligonos) irreparaveis
+    de um MultiPolygon em vez de perder a area inteira."""
+    if geom is None or geom.is_empty:
+        return geom
+
+    try:
+        reparada = geom.buffer(0)
+    except Exception:
+        reparada = None
+    if reparada is not None and not reparada.is_empty and not _tem_coordenada_invalida(reparada):
+        return reparada
+
+    partes = list(geom.geoms) if geom.geom_type == "MultiPolygon" else [geom]
+    boas = []
+    descartadas = 0
+    for parte in partes:
+        try:
+            p = parte.buffer(0)
+        except Exception:
+            p = None
+        if p is None or p.is_empty or _tem_coordenada_invalida(p):
+            descartadas += 1
+            continue
+        boas.append(p)
+    if descartadas:
+        print(f"  [{contexto}] aviso: {descartadas} parte(s) com coordenada invalida "
+              f"descartada(s) do calculo de area (geometria irreparavel)")
+    if not boas:
+        return None
+    return unary_union(boas)
+
+
+def area_ha_geodesica(geom, contexto="?"):
     if geom is None or geom.is_empty:
         return 0.0
     area, _ = GEOD.geometry_area_perimeter(geom)
+    if area != area:  # NaN (nan != nan e sempre True)
+        print(f"  [{contexto}] aviso: area saiu NaN, geometria tem coordenada invalida -- reparando...")
+        geom_ok = _sanitizar_para_area(geom, contexto)
+        if geom_ok is None or geom_ok.is_empty:
+            print(f"  [{contexto}] geometria ficou vazia apos reparo, area = 0.0")
+            return 0.0
+        area, _ = GEOD.geometry_area_perimeter(geom_ok)
+        if area != area:
+            print(f"  [{contexto}] aviso: area continua NaN mesmo apos reparo, retornando 0.0 "
+                  f"-- ESSA UF PRECISA DE INSPECAO MANUAL")
+            return 0.0
     return abs(area) / 10_000.0
 
 
@@ -235,7 +315,7 @@ def processar_uf(uf, pasta):
     )
 
     if geom_analisado is not None:
-        area_ha = area_ha_geodesica(geom_analisado)
+        area_ha = area_ha_geodesica(geom_analisado, f"{uf}/analisado")
         resultados.append({
             "uf": uf, "categoria": "analisado",
             "n_imoveis_origem": n_analisado, "area_ha": area_ha,
@@ -247,6 +327,7 @@ def processar_uf(uf, pasta):
         if geom_analisado is not None:
             # PRIORIDADE: analisado fica intacto; nao_analisado e recortado
             # para eliminar sobreposicao remanescente entre as categorias.
+            t_recorte = time.time()
             try:
                 recortado = geom_nao_analisado.difference(geom_analisado)
             except Exception:
@@ -257,10 +338,12 @@ def processar_uf(uf, pasta):
                 recortado = gn.difference(ga)
             recortado = _so_poligonos(recortado)
             recortado = _multipolygon(recortado)
+            print(f"  [{uf}/nao_analisado] recorte (diferenca) contra analisado em "
+                  f"{time.time()-t_recorte:.1f}s")
         else:
             recortado = geom_nao_analisado
 
-        area_ha = area_ha_geodesica(recortado) if recortado is not None else 0.0
+        area_ha = area_ha_geodesica(recortado, f"{uf}/nao_analisado") if recortado is not None else 0.0
         if recortado is None:
             # todo o nao_analisado estava contido no analisado
             recortado = MultiPolygon([])
@@ -323,41 +406,36 @@ def main():
             ufs_completas.add(uf)
     pendentes = [uf for uf in ufs if uf not in ufs_completas]
 
+    n_workers = max(1, min(MAX_WORKERS, len(pendentes))) if pendentes else 1
     print(f"UFs disponiveis: {len(ufs_disponiveis)} | a processar: {len(pendentes)} "
-          f"| ja completas (puladas): {len(set(ufs) & ufs_completas)}")
+          f"| ja completas (puladas): {len(set(ufs) & ufs_completas)} | "
+          f"paralelismo: {n_workers} UF(s) por vez")
 
     falhas = []
     atual = existente  # GeoDataFrame acumulado, gravado no disco a cada UF concluida
+    lock_gravacao = threading.Lock()  # so uma thread escreve no gpkg por vez
 
     def gravar(atual_gdf):
         atual_gdf = atual_gdf.sort_values(["uf", "categoria"]).reset_index(drop=True)
         atual_gdf.to_file(SAIDA, layer=CAMADA_SAIDA, driver="GPKG")
         return atual_gdf
 
-    try:
-        for uf in pendentes:
-            pasta = PASTA_BASE / f"_saida_{uf}"
-            if not pasta.exists():
-                print(f"  [{uf}] pasta nao encontrada: {pasta}")
-                falhas.append(uf)
-                continue
-            try:
-                r = processar_uf(uf, pasta)
-            except Exception as e:
-                print(f"  [{uf}] ERRO: {e}")
-                traceback.print_exc()
-                falhas.append(uf)
-                continue
-
-            if not r:
-                print(f"  [{uf}] nada a gravar (sem resultados)")
-                continue
-
-            # GRAVA IMEDIATAMENTE ao terminar a UF -- se o processo for
-            # interrompido (Ctrl+C, falta de energia, VS Code travar) depois
-            # disso, o progresso ate aqui fica salvo; so essa UF (ou a que
-            # estiver em andamento) precisaria ser refeita.
-            novo_gdf = gpd.GeoDataFrame(r, geometry="geometry", crs="EPSG:4674")
+    def processar_e_gravar(uf):
+        # roda em uma thread do pool: processa a UF inteira (leitura, reparo,
+        # dissolve, recorte) e so entao pede o lock pra gravar -- assim o
+        # trabalho pesado (que libera o GIL) roda de fato em paralelo, e so
+        # a gravacao no gpkg (rapida) fica serializada.
+        nonlocal atual
+        pasta = PASTA_BASE / f"_saida_{uf}"
+        if not pasta.exists():
+            print(f"  [{uf}] pasta nao encontrada: {pasta}")
+            return uf, False
+        r = processar_uf(uf, pasta)
+        if not r:
+            print(f"  [{uf}] nada a gravar (sem resultados)")
+            return uf, True
+        novo_gdf = gpd.GeoDataFrame(r, geometry="geometry", crs="EPSG:4674")
+        with lock_gravacao:
             if atual is not None:
                 atual = atual[atual["uf"] != uf]
                 atual = pd.concat([atual, novo_gdf], ignore_index=True)
@@ -366,10 +444,26 @@ def main():
                 atual = novo_gdf
             atual = gravar(atual)
             print(f"  [{uf}] gravado em disco ({len(atual)} feicoes no total ate agora)")
+        return uf, True
+
+    try:
+        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+            futuros = {executor.submit(processar_e_gravar, uf): uf for uf in pendentes}
+            for futuro in as_completed(futuros):
+                uf = futuros[futuro]
+                try:
+                    _, ok = futuro.result()
+                    if not ok:
+                        falhas.append(uf)
+                except Exception as e:
+                    print(f"  [{uf}] ERRO: {e}")
+                    traceback.print_exc()
+                    falhas.append(uf)
     except KeyboardInterrupt:
         print("\nInterrompido pelo usuario (Ctrl+C). O que ja tinha sido processado "
               "ate a ultima UF concluida ja esta salvo em disco. Rode o script de novo "
-              "para continuar de onde parou.")
+              "para continuar de onde parou. (UFs ainda em andamento nas outras threads "
+              "podem levar alguns segundos pra realmente parar.)")
         raise
 
     if atual is None:
