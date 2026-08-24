@@ -71,8 +71,9 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely
-from pyproj import Geod
+from pyproj import Geod, Transformer
 from shapely.geometry import MultiPolygon
+from shapely.ops import transform as _shapely_transform
 from shapely.ops import unary_union
 
 try:
@@ -106,6 +107,29 @@ ARQ_NAO_ANALISADO = "{uf}_trabalho.gpkg"
 # --------------------------------------------------------------------------
 
 GEOD = Geod(ellps="GRS80")
+
+# fallback pro calculo de area quando o pyproj/GEOD teima em devolver NaN
+# mesmo depois de todo reparo (visto no MA -- geometria sem coordenada
+# NaN/Inf detectavel, mas o algoritmo geodesico do pyproj ainda assim
+# produz NaN, provavelmente por alguma degenerescencia numerica sutil
+# numa geometria com centenas de milhares de vertices). Reprojetar pra uma
+# CRS equal-area e calcular a area planar la e um caminho de calculo
+# COMPLETAMENTE DIFERENTE (GEOS puro, sem a formula geodesica do pyproj) --
+# validado a mao contra o metodo geodesico no AC: diferenca de 0,003%.
+_TRANSFORMER_EQAREA = Transformer.from_crs("EPSG:4674", "EPSG:6933", always_xy=True)
+
+
+def _area_ha_equal_area(geom):
+    if geom is None or geom.is_empty:
+        return None
+    try:
+        geom_proj = _shapely_transform(_TRANSFORMER_EQAREA.transform, geom)
+        area_m2 = geom_proj.area
+    except Exception:
+        return None
+    if area_m2 != area_m2 or area_m2 <= 0:
+        return None
+    return area_m2 / 10_000.0
 
 
 def _so_poligonos(geom):
@@ -277,7 +301,16 @@ def area_ha_geodesica(geom, contexto="?"):
             return 0.0
         area, _ = GEOD.geometry_area_perimeter(geom_ok)
         if area != area:
-            print(f"  [{contexto}] aviso: area continua NaN mesmo apos reparo, retornando 0.0 "
+            print(f"  [{contexto}] aviso: area geodesica (pyproj) continua NaN mesmo apos reparo; "
+                  f"tentando via reprojecao equal-area (EPSG:6933) como ultimo recurso...")
+            area_alt = _area_ha_equal_area(geom_ok)
+            if area_alt is None:
+                area_alt = _area_ha_equal_area(geom)  # tenta tambem com a geometria original
+            if area_alt is not None:
+                print(f"  [{contexto}] area via equal-area funcionou: {area_alt:,.1f} ha "
+                      f"(pode ter diferenca de ate ~0,01% vs o metodo geodesico das outras UFs)")
+                return area_alt
+            print(f"  [{contexto}] aviso: TAMBEM falhou via equal-area, retornando 0.0 "
                   f"-- ESSA UF PRECISA DE INSPECAO MANUAL")
             return 0.0
     return abs(area) / 10_000.0
