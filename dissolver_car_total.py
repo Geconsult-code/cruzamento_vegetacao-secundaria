@@ -50,7 +50,9 @@ import traceback
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
+import shapely
 from pyproj import Geod
 from shapely.geometry import MultiPolygon
 from shapely.ops import unary_union
@@ -60,13 +62,15 @@ try:
 except ImportError:  # shapely < 2.0
     from shapely.validation import make_valid as _make_valid
 
+_SHAPELY2 = tuple(int(p) for p in shapely.__version__.split(".")[:2]) >= (2, 0)
+
 # ----------------------------- CONFIG -----------------------------------
 PASTA_BASE = Path(r"C:\Users\User\Dropbox\#CONSULTANCY\PLANAVEG\GEODATABASE\INCRA-CAR")
 SAIDA = PASTA_BASE / "CAR_total_dissolvido_UF.gpkg"
 CAMADA_SAIDA = "CAR_total_UF"
 
 SOMENTE_ESTES = []   # ex.: ['AC', 'PA'] -- vazio = todos os estados encontrados (pastas _saida_*)
-PULAR = []           # UFs a pular
+PULAR = ["BA"]       # UFs a pular (BA pulada por ora -- e o maior/mais lento; roda-se depois sozinha)
 REFAZER = []         # UFs para reprocessar (as duas categorias) mesmo se ja estiverem na saida
 
 ARQ_ANALISADO = "{uf}_analisados.gpkg"
@@ -134,6 +138,32 @@ def _multipolygon(geom):
     return geom
 
 
+def _reparar_lote_vetorizado(uf, categoria, arr):
+    """Repara geometrias invalidas de um array inteiro de uma vez (funcoes
+    vetorizadas do shapely 2, muito mais rapido que chamar make_valid geom a
+    geom em Python puro -- essencial para estados grandes tipo BA/MG/MT
+    com centenas de milhares a milhoes de feicoes). Cai para o reparo
+    geom-a-geom (mais lento) so no subconjunto invalido, e so se o lote
+    vetorizado falhar (mesmo caso do AM: make_valid pode lancar excecao em
+    geometria muito patologica)."""
+    arr = np.asarray(arr, dtype=object)
+    validas = shapely.is_valid(arr)
+    n_invalidas = int((~validas).sum())
+    if n_invalidas == 0:
+        return arr
+
+    print(f"  [{uf}/{categoria}] reparando {n_invalidas} geometrias invalidas de {len(arr)}...")
+    try:
+        arr[~validas] = shapely.make_valid(arr[~validas])
+    except Exception:
+        print(f"  [{uf}/{categoria}] make_valid em lote falhou, reparando uma a uma "
+              f"(mais lento, so as {n_invalidas} invalidas)...")
+        idx_invalidas = np.where(~validas)[0]
+        for i in idx_invalidas:
+            arr[i] = _reparar(arr[i])
+    return arr
+
+
 def dissolver_arquivo(uf, categoria, caminho):
     """Le um gpkg (camada AREA_IMOVEL), repara e dissolve TODOS os imoveis
     dele entre si (uma unica categoria -> uma unica geometria)."""
@@ -141,30 +171,55 @@ def dissolver_arquivo(uf, categoria, caminho):
         print(f"  [{uf}/{categoria}] aviso: {caminho.name} nao encontrado, pulando")
         return None, 0
 
+    t0 = time.time()
     gdf = gpd.read_file(caminho, layer="AREA_IMOVEL")
     n_base = len(gdf)
+    print(f"  [{uf}/{categoria}] lido {n_base} imoveis em {time.time()-t0:.1f}s")
     if n_base == 0:
         print(f"  [{uf}/{categoria}] sem feicoes, pulando")
         return None, 0
 
-    geoms_ok = []
-    descartadas = 0
-    for geom in gdf.geometry:
-        g = _reparar(geom)
-        if g is None or g.is_empty:
-            descartadas += 1
-            continue
-        geoms_ok.append(g)
+    if _SHAPELY2:
+        t1 = time.time()
+        arr = _reparar_lote_vetorizado(uf, categoria, gdf.geometry.values)
+
+        # filtro vetorizado: mantem so Polygon/MultiPolygon nao-vazios;
+        # GeometryCollection (raro, sobra de reparo) tratado a parte
+        type_ids = shapely.get_type_id(arr)
+        vazias = shapely.is_empty(arr)
+        mask_ok = np.isin(type_ids, [3, 6]) & ~vazias  # 3=Polygon, 6=MultiPolygon
+        geoms_ok = list(arr[mask_ok])
+
+        mask_gc = (type_ids == 7) & ~vazias  # 7=GeometryCollection
+        for g in arr[mask_gc]:
+            gp = _so_poligonos(g)
+            if gp is not None and not gp.is_empty:
+                geoms_ok.append(gp)
+
+        descartadas = n_base - len(geoms_ok)
+        print(f"  [{uf}/{categoria}] reparo+filtro vetorizado em {time.time()-t1:.1f}s "
+              f"({descartadas} descartadas)")
+    else:
+        geoms_ok = []
+        descartadas = 0
+        for geom in gdf.geometry:
+            g = _reparar(geom)
+            if g is None or g.is_empty:
+                descartadas += 1
+                continue
+            geoms_ok.append(g)
+        if descartadas:
+            print(f"  [{uf}/{categoria}] {descartadas} geometrias descartadas na leitura")
 
     if not geoms_ok:
         print(f"  [{uf}/{categoria}] todas as geometrias descartadas, pulando")
         return None, n_base
 
+    t2 = time.time()
     dissolvido = unary_union(geoms_ok)
     dissolvido = _so_poligonos(dissolvido)
     dissolvido = _multipolygon(dissolvido)
-    if dissolvido is not None and descartadas:
-        print(f"  [{uf}/{categoria}] {descartadas} geometrias descartadas na leitura")
+    print(f"  [{uf}/{categoria}] dissolve (uniao geometrica) em {time.time()-t2:.1f}s")
     return dissolvido, n_base
 
 
