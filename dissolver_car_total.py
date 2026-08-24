@@ -50,6 +50,15 @@ gravacao no gpkg fica serializada. area_ha_geodesica() nunca retorna NaN
 silenciosamente: se o pyproj devolver NaN (pode acontecer em geometrias
 gigantes pos-recorte, artefato raro de coordenada degenerada), tenta
 reparar e avisa no console.
+
+Uniao (dissolve) e recorte (difference) sao ROBUSTOS: se o GEOS lancar
+TopologyException (visto na pratica: PR quebrou com 'Ring edge missing' --
+geometria complexa demais pro algoritmo de precisao flutuante padrao) ou
+produzir coordenada invalida mesmo sem erro (visto no MA), a UF nao trava
+o lote inteiro -- ela e marcada como falha (fica de fora da saida, entao
+uma proxima execucao tenta de novo automaticamente) OU o script tenta de
+novo com grid_size (arredondamento pra grade fixa, mais lento porem mais
+robusto para geometria muito densa/complexa) antes de desistir.
 """
 
 import threading
@@ -192,6 +201,70 @@ def _sanitizar_para_area(geom, contexto):
     return unary_union(boas)
 
 
+def _uniao_robusta(geoms, contexto):
+    """unary_union normal primeiro (rapido); se o GEOS explodir com
+    TopologyException/GEOSException (visto na pratica no PR: 'Ring edge
+    missing' -- geometria muito complexa/densa pro algoritmo de precisao
+    flutuante padrao), tenta de novo com grid_size (arredondamento pra uma
+    grade fixa -- mais lento, porem o jeito recomendado do GEOS pra evitar
+    exatamente esse tipo de excecao)."""
+    try:
+        return unary_union(geoms)
+    except Exception as e:
+        print(f"  [{contexto}] uniao falhou ({e}); tentando de novo com grid_size fixo "
+              f"(mais lento, porem mais robusto p/ geometria complexa)...")
+        arr = np.asarray(geoms, dtype=object)
+        for grid in (1e-9, 1e-7, 1e-5):
+            try:
+                r = shapely.union_all(arr, grid_size=grid)
+                print(f"  [{contexto}] uniao com grid_size={grid} funcionou")
+                return r
+            except Exception as e2:
+                print(f"  [{contexto}] grid_size={grid} tambem falhou: {e2}")
+        print(f"  [{contexto}] TODAS as tentativas de uniao falharam -- propagando o erro")
+        raise
+
+
+def _diferenca_robusta(a, b, contexto):
+    """Mesma ideia de _uniao_robusta, mas pro recorte (difference). Alem de
+    tentar grid_size quando a chamada normal lanca excecao, tambem checa se
+    o resultado (mesmo sem excecao) ficou com coordenada invalida/NaN --
+    caso do MA: a diferenca 'funcionou' sem erro nenhum, mas produziu um
+    vertice NaN que o pyproj engoliu silenciosamente."""
+    try:
+        d = a.difference(b)
+    except Exception as e:
+        d = None
+        print(f"  [{contexto}] diferenca falhou ({e}); tentando de novo com grid_size...")
+        for grid in (1e-9, 1e-7, 1e-5):
+            try:
+                d = a.difference(b, grid_size=grid)
+                print(f"  [{contexto}] diferenca com grid_size={grid} funcionou")
+                break
+            except Exception as e2:
+                print(f"  [{contexto}] grid_size={grid} tambem falhou: {e2}")
+        if d is None:
+            print(f"  [{contexto}] TODAS as tentativas de diferenca falharam -- usando a "
+                  f"geometria SEM recorte como ultimo recurso (pode manter alguma "
+                  f"sobreposicao residual entre analisado/nao_analisado nessa UF)")
+            return a
+
+    if _tem_coordenada_invalida(d):
+        print(f"  [{contexto}] diferenca produziu coordenada invalida (NaN/Inf); "
+              f"tentando de novo com grid_size...")
+        for grid in (1e-9, 1e-7, 1e-5):
+            try:
+                d2 = a.difference(b, grid_size=grid)
+                if not _tem_coordenada_invalida(d2):
+                    print(f"  [{contexto}] grid_size={grid} eliminou a coordenada invalida")
+                    return d2
+            except Exception as e2:
+                print(f"  [{contexto}] grid_size={grid} tambem falhou: {e2}")
+        print(f"  [{contexto}] nao foi possivel eliminar a coordenada invalida via grid_size; "
+              f"vai passar pelo reparo de partes mais adiante")
+    return d
+
+
 def area_ha_geodesica(geom, contexto="?"):
     if geom is None or geom.is_empty:
         return 0.0
@@ -296,7 +369,7 @@ def dissolver_arquivo(uf, categoria, caminho):
         return None, n_base
 
     t2 = time.time()
-    dissolvido = unary_union(geoms_ok)
+    dissolvido = _uniao_robusta(geoms_ok, f"{uf}/{categoria}")
     dissolvido = _so_poligonos(dissolvido)
     dissolvido = _multipolygon(dissolvido)
     print(f"  [{uf}/{categoria}] dissolve (uniao geometrica) em {time.time()-t2:.1f}s")
@@ -328,16 +401,15 @@ def processar_uf(uf, pasta):
             # PRIORIDADE: analisado fica intacto; nao_analisado e recortado
             # para eliminar sobreposicao remanescente entre as categorias.
             t_recorte = time.time()
-            try:
-                recortado = geom_nao_analisado.difference(geom_analisado)
-            except Exception:
-                # geometrias muito complexas podem falhar na 1a tentativa;
-                # repara de novo (buffer(0)) e tenta uma vez mais
-                ga = _reparar(geom_analisado) or geom_analisado
-                gn = _reparar(geom_nao_analisado) or geom_nao_analisado
-                recortado = gn.difference(ga)
+            recortado = _diferenca_robusta(geom_nao_analisado, geom_analisado, f"{uf}/nao_analisado")
             recortado = _so_poligonos(recortado)
             recortado = _multipolygon(recortado)
+            # garante que a geometria GRAVADA no gpkg tambem fica sem
+            # coordenada invalida (antes so a area era saneada, a geometria
+            # bruta ainda ia pro arquivo -- foi o que aconteceu com o MA)
+            if recortado is not None and _tem_coordenada_invalida(recortado):
+                recortado = _sanitizar_para_area(recortado, f"{uf}/nao_analisado (geometria)")
+                recortado = _multipolygon(recortado)
             print(f"  [{uf}/nao_analisado] recorte (diferenca) contra analisado em "
                   f"{time.time()-t_recorte:.1f}s")
         else:
