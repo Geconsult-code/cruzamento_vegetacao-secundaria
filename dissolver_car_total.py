@@ -190,6 +190,45 @@ def _tem_coordenada_invalida(geom):
         return False
 
 
+# bbox bem generoso do Brasil (graus, EPSG:4674) -- so pra pegar vertice
+# GRAVEMENTE degenerado: finito (passa no isfinite acima), mas geografico
+# absurdo. Visto no MA numa segunda rodada: a diferenca (recorte) produziu
+# um resultado sem NaN/Inf detectavel (_tem_coordenada_invalida = False),
+# porem mesmo assim TANTO o calculo geodesico (pyproj) QUANTO o fallback
+# equal-area (reprojecao + shapely puro) devolveram NaN -- sinal de que
+# sobrou algum vertice finito porem fora de qualquer lugar real (artefato
+# raro de arredondamento/grid_size numa geometria com centenas de milhares
+# de vertices). Esse bbox nunca deve descartar dado bom: e ~3x maior que o
+# territorio brasileiro em cada direcao.
+_BRASIL_BBOX = (-76.0, -36.0, -28.0, 8.0)  # lon_min, lat_min, lon_max, lat_max
+
+
+def _tem_coordenada_absurda(geom):
+    """Vertice finito (passa isfinite) mas fora do _BRASIL_BBOX -- pega o
+    caso que _tem_coordenada_invalida (NaN/Inf) nao pega, mas que ainda
+    assim quebra o calculo de area geodesico E o equal-area."""
+    if geom is None or geom.is_empty:
+        return False
+    try:
+        coords = shapely.get_coordinates(geom)
+        if not coords.size:
+            return False
+        lon_min, lat_min, lon_max, lat_max = _BRASIL_BBOX
+        fora = (
+            (coords[:, 0] < lon_min) | (coords[:, 0] > lon_max) |
+            (coords[:, 1] < lat_min) | (coords[:, 1] > lat_max)
+        )
+        return bool(fora.any())
+    except Exception:
+        return False
+
+
+def _geometria_suspeita(geom):
+    """NaN/Inf OU coordenada absurda -- usado onde antes so se checava
+    _tem_coordenada_invalida, pra tambem pegar o caso do MA."""
+    return _tem_coordenada_invalida(geom) or _tem_coordenada_absurda(geom)
+
+
 def _sanitizar_para_area(geom, contexto):
     """Remove/repara coordenadas invalidas antes do calculo de area. Tenta
     buffer(0) na geometria inteira primeiro (corrige a maioria dos casos);
@@ -202,7 +241,7 @@ def _sanitizar_para_area(geom, contexto):
         reparada = geom.buffer(0)
     except Exception:
         reparada = None
-    if reparada is not None and not reparada.is_empty and not _tem_coordenada_invalida(reparada):
+    if reparada is not None and not reparada.is_empty and not _geometria_suspeita(reparada):
         return reparada
 
     partes = list(geom.geoms) if geom.geom_type == "MultiPolygon" else [geom]
@@ -213,7 +252,7 @@ def _sanitizar_para_area(geom, contexto):
             p = parte.buffer(0)
         except Exception:
             p = None
-        if p is None or p.is_empty or _tem_coordenada_invalida(p):
+        if p is None or p.is_empty or _geometria_suspeita(p):
             descartadas += 1
             continue
         boas.append(p)
@@ -273,18 +312,18 @@ def _diferenca_robusta(a, b, contexto):
                   f"sobreposicao residual entre analisado/nao_analisado nessa UF)")
             return a
 
-    if _tem_coordenada_invalida(d):
-        print(f"  [{contexto}] diferenca produziu coordenada invalida (NaN/Inf); "
-              f"tentando de novo com grid_size...")
+    if _geometria_suspeita(d):
+        print(f"  [{contexto}] diferenca produziu coordenada invalida/absurda (NaN/Inf ou "
+              f"fora do bbox esperado); tentando de novo com grid_size...")
         for grid in (1e-9, 1e-7, 1e-5):
             try:
                 d2 = a.difference(b, grid_size=grid)
-                if not _tem_coordenada_invalida(d2):
-                    print(f"  [{contexto}] grid_size={grid} eliminou a coordenada invalida")
+                if not _geometria_suspeita(d2):
+                    print(f"  [{contexto}] grid_size={grid} eliminou a coordenada invalida/absurda")
                     return d2
             except Exception as e2:
                 print(f"  [{contexto}] grid_size={grid} tambem falhou: {e2}")
-        print(f"  [{contexto}] nao foi possivel eliminar a coordenada invalida via grid_size; "
+        print(f"  [{contexto}] nao foi possivel eliminar via grid_size; "
               f"vai passar pelo reparo de partes mais adiante")
     return d
 
@@ -440,7 +479,7 @@ def processar_uf(uf, pasta):
             # garante que a geometria GRAVADA no gpkg tambem fica sem
             # coordenada invalida (antes so a area era saneada, a geometria
             # bruta ainda ia pro arquivo -- foi o que aconteceu com o MA)
-            if recortado is not None and _tem_coordenada_invalida(recortado):
+            if recortado is not None and _geometria_suspeita(recortado):
                 recortado = _sanitizar_para_area(recortado, f"{uf}/nao_analisado (geometria)")
                 recortado = _multipolygon(recortado)
             print(f"  [{uf}/nao_analisado] recorte (diferenca) contra analisado em "
