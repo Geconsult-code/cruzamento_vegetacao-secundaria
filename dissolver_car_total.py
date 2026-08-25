@@ -88,11 +88,12 @@ PASTA_BASE = Path(r"C:\Users\User\Dropbox\#CONSULTANCY\PLANAVEG\GEODATABASE\INCR
 SAIDA = PASTA_BASE / "CAR_total_dissolvido_UF.gpkg"
 CAMADA_SAIDA = "CAR_total_UF"
 
-SOMENTE_ESTES = []   # ex.: ['AC', 'PA'] -- vazio = todos os estados encontrados (pastas _saida_*)
-PULAR = ["BA"]       # UFs a pular (BA pulada por ora -- e o maior/mais lento; roda-se depois sozinha)
-REFAZER = ["MA"]     # UFs para reprocessar (as duas categorias) mesmo se ja estiverem na saida
-                     # -- MA ja esta na saida mas com area_ha = NaN em nao_analisado (bug antigo,
-                     # ja corrigido); precisa refazer pra pegar o valor certo
+SOMENTE_ESTES = ["BA"]   # preparado pra rodar SO a BA (as outras 26 UFs ja estao completas e
+                         # corretas na saida -- restringir aqui evita o script ter que
+                         # reconferir todo mundo, vai direto pra BA)
+PULAR = []               # nada a pular -- a BA e justamente a que falta agora
+REFAZER = []             # MA ja foi reprocessada com a correcao do bbox-absurdo e confirmada
+                         # correta (3.623.220,2 ha); nao precisa mais forcar reprocessamento
 
 # quantas UFs processar AO MESMO TEMPO (threads). As operacoes pesadas do
 # shapely/GEOS liberam o GIL do Python, entao isso realmente roda em
