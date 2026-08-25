@@ -88,12 +88,19 @@ PASTA_BASE = Path(r"C:\Users\User\Dropbox\#CONSULTANCY\PLANAVEG\GEODATABASE\INCR
 SAIDA = PASTA_BASE / "CAR_total_dissolvido_UF.gpkg"
 CAMADA_SAIDA = "CAR_total_UF"
 
-SOMENTE_ESTES = ["BA"]   # preparado pra rodar SO a BA (as outras 26 UFs ja estao completas e
-                         # corretas na saida -- restringir aqui evita o script ter que
-                         # reconferir todo mundo, vai direto pra BA)
-PULAR = []               # nada a pular -- a BA e justamente a que falta agora
-REFAZER = []             # MA ja foi reprocessada com a correcao do bbox-absurdo e confirmada
-                         # correta (3.623.220,2 ha); nao precisa mais forcar reprocessamento
+SOMENTE_ESTES = []   # vazio = todos os estados encontrados -- deixado vazio de proposito: o
+                     # computador reiniciou (provavel travamento) no meio do dissolve do
+                     # MG/nao_analisado, ENTAO O MG NAO FOI GRAVADO (a gravacao so acontece
+                     # quando processar_uf() termina as DUAS categorias -- um travamento no
+                     # meio da UF perde o trabalho parcial dela, mesmo com a gravacao
+                     # incremental entre UFs). Com SOMENTE_ESTES vazio, a logica de retomada
+                     # detecta sozinha que so BA e MG ainda faltam (as outras 25 ja estao
+                     # completas na saida) e roda so essas duas -- NAO restrinja para ['BA']
+                     # de novo sem lembrar de incluir o MG tambem, ou ele fica pra tras
+                     # silenciosamente.
+PULAR = []           # nada a pular -- BA e MG sao justamente os que faltam agora
+REFAZER = []         # MA ja foi reprocessada com a correcao do bbox-absurdo e confirmada
+                     # correta (3.623.220,2 ha); nao precisa mais forcar reprocessamento
 
 # quantas UFs processar AO MESMO TEMPO (threads). As operacoes pesadas do
 # shapely/GEOS liberam o GIL do Python, entao isso realmente roda em
