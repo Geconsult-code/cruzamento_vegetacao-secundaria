@@ -59,6 +59,14 @@ o lote inteiro -- ela e marcada como falha (fica de fora da saida, entao
 uma proxima execucao tenta de novo automaticamente) OU o script tenta de
 novo com grid_size (arredondamento pra grade fixa, mais lento porem mais
 robusto para geometria muito densa/complexa) antes de desistir.
+
+HEARTBEAT: a cada HEARTBEAT_INTERVALO_S (default 5 min) o script escreve
+ARQ_HEARTBEAT (heartbeat_dissolver.txt, na mesma pasta da saida) dizendo o
+que cada UF esta fazendo agora e ha quanto tempo -- util porque o
+dissolve/recorte de uma UF grande e uma UNICA chamada do GEOS que pode
+ficar horas sem imprimir nada no console. Basta abrir esse arquivo (ou
+checar a hora de modificacao dele) pra confirmar que o processo continua
+vivo, sem precisar esperar a UF inteira terminar.
 """
 
 import threading
@@ -112,9 +120,59 @@ MAX_WORKERS = 4
 
 ARQ_ANALISADO = "{uf}_analisados.gpkg"
 ARQ_NAO_ANALISADO = "{uf}_trabalho.gpkg"
+
+# a cada quantos segundos o script escreve um "sinal de vida" (heartbeat) --
+# um arquivo de texto dizendo o que cada UF esta fazendo agora e ha quanto
+# tempo. Existe porque o dissolve/recorte de uma UF grande e UMA UNICA
+# chamada do GEOS que pode ficar HORAS sem imprimir nada -- sem isso, nao
+# da pra distinguir "ainda processando, so que é lento" de "travou de
+# verdade" sem esperar a UF inteira terminar (foi exatamente o que
+# aconteceu com o MG). O heartbeat roda numa thread separada e nao atrapalha
+# o processamento (GEOS libera o GIL).
+HEARTBEAT_INTERVALO_S = 300  # 5 minutos
+ARQ_HEARTBEAT = "heartbeat_dissolver.txt"
 # --------------------------------------------------------------------------
 
 GEOD = Geod(ellps="GRS80")
+
+# --------------------------- HEARTBEAT -----------------------------------
+_estagio_lock = threading.Lock()
+_estagio_atual = {}  # uf -> (texto da etapa em andamento, timestamp de quando comecou)
+
+
+def _marcar_estagio(uf, texto):
+    with _estagio_lock:
+        _estagio_atual[uf] = (texto, time.time())
+
+
+def _limpar_estagio(uf):
+    with _estagio_lock:
+        _estagio_atual.pop(uf, None)
+
+
+def _heartbeat_loop(parar_evento, intervalo_s, caminho):
+    """Roda em thread daemon separada; a cada intervalo_s escreve (e
+    imprime) um resumo do que cada UF esta fazendo e ha quanto tempo --
+    assim da pra checar de fora (abrindo o .txt, sem mexer no processo)
+    que o script continua vivo mesmo numa etapa silenciosa de horas."""
+    while not parar_evento.wait(intervalo_s):
+        agora = time.time()
+        with _estagio_lock:
+            snapshot = dict(_estagio_atual)
+        linhas = [f"heartbeat {time.strftime('%Y-%m-%d %H:%M:%S')} -- processo ainda ativo"]
+        if not snapshot:
+            linhas.append("  (nenhuma UF em etapa longa no momento -- entre etapas rapidas, "
+                           "ou o lote esta terminando)")
+        else:
+            for uf, (texto, t0) in sorted(snapshot.items()):
+                dt = agora - t0
+                linhas.append(f"  [{uf}] {texto} -- em andamento ha {dt:.0f}s ({dt/60:.1f} min)")
+        conteudo = "\n".join(linhas) + "\n"
+        print("\n" + conteudo)
+        try:
+            caminho.write_text(conteudo, encoding="utf-8")
+        except Exception as e:
+            print(f"  (heartbeat: nao consegui escrever {caminho.name}: {e})")
 
 # fallback pro calculo de area quando o pyproj/GEOD teima em devolver NaN
 # mesmo depois de todo reparo (visto no MA -- geometria sem coordenada
@@ -449,6 +507,7 @@ def dissolver_arquivo(uf, categoria, caminho):
         return None, n_base
 
     t2 = time.time()
+    _marcar_estagio(uf, f"{categoria}: dissolve (uniao geometrica) de {len(geoms_ok)} partes")
     dissolvido = _uniao_robusta(geoms_ok, f"{uf}/{categoria}")
     dissolvido = _so_poligonos(dissolvido)
     dissolvido = _multipolygon(dissolvido)
@@ -481,6 +540,7 @@ def processar_uf(uf, pasta):
             # PRIORIDADE: analisado fica intacto; nao_analisado e recortado
             # para eliminar sobreposicao remanescente entre as categorias.
             t_recorte = time.time()
+            _marcar_estagio(uf, "nao_analisado: recorte (diferenca) contra analisado")
             recortado = _diferenca_robusta(geom_nao_analisado, geom_analisado, f"{uf}/nao_analisado")
             recortado = _so_poligonos(recortado)
             recortado = _multipolygon(recortado)
@@ -507,6 +567,7 @@ def processar_uf(uf, pasta):
         print(f"  [{uf}/nao_analisado] {n_nao_analisado} imoveis base -> {area_ha:,.1f} ha "
               f"(pos-recorte contra analisado)")
 
+    _limpar_estagio(uf)
     dt = time.time() - t0
     print(f"  [{uf}] concluido em {dt:.1f}s")
     return resultados
@@ -598,6 +659,20 @@ def main():
             print(f"  [{uf}] gravado em disco ({len(atual)} feicoes no total ate agora)")
         return uf, True
 
+    parar_heartbeat = threading.Event()
+    heartbeat_thread = None
+    if pendentes:
+        caminho_heartbeat = PASTA_BASE / ARQ_HEARTBEAT
+        heartbeat_thread = threading.Thread(
+            target=_heartbeat_loop,
+            args=(parar_heartbeat, HEARTBEAT_INTERVALO_S, caminho_heartbeat),
+            daemon=True,
+        )
+        heartbeat_thread.start()
+        print(f"Heartbeat ativado: a cada {HEARTBEAT_INTERVALO_S//60} min, escreve "
+              f"{caminho_heartbeat} com o que cada UF esta fazendo -- da pra checar de "
+              f"fora (ou pedir pra eu checar) sem esperar a UF inteira terminar.")
+
     try:
         with ThreadPoolExecutor(max_workers=n_workers) as executor:
             futuros = {executor.submit(processar_e_gravar, uf): uf for uf in pendentes}
@@ -617,6 +692,10 @@ def main():
               "para continuar de onde parou. (UFs ainda em andamento nas outras threads "
               "podem levar alguns segundos pra realmente parar.)")
         raise
+    finally:
+        parar_heartbeat.set()
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=2)
 
     if atual is None:
         print("\nNada foi gravado (nenhuma UF pendente teve resultado).")
