@@ -16,8 +16,8 @@ Para cada UF x categoria (Nao_Analisados / Analisados) x tipo (APP/RL/AUR):
      intersection), reduzindo cada resultado a sua parte poligonal
      (imune a 'mixed-dimension', mesmo padrao ja validado no projeto pro AM);
   4. calcula area geodesica (ha, GRS80) de cada pedaco;
-  5. grava (append, via OGR bruto) direto na camada de saida VS_<TIPO>_<categoria>
-     dentro do gpkg final da categoria.
+  5. grava (append, via GeoPandas/pyogrio) direto na camada de saida
+     VS_<TIPO>_<categoria> dentro do gpkg final da categoria.
 
 Saida (2 arquivos, nomes finais conforme docx de renomeacao):
   Vegetacao_Secundaria\VS_Imoveis_Selecionados_Nao_Analisados.gpkg
@@ -39,15 +39,12 @@ import json
 import time
 import unicodedata
 
-from osgeo import ogr, gdal
 import geopandas as gpd
 import pandas as pd
 import pyogrio
 from pyproj import Geod
 import shapely
 from shapely.geometry import Polygon, MultiPolygon, GeometryCollection
-
-gdal.UseExceptions()
 
 # =============================== CONFIG ===============================
 BASE_ROOT = r"C:\Users\User\Dropbox\#CONSULTANCY\PLANAVEG\GEODATABASE\INCRA-CAR"
@@ -173,10 +170,8 @@ def carregar_worklist():
                 layer = f"CAR_{uf}_{tipo}_Selecionados_{cat}"
                 if layer not in cams:
                     continue
-                ds = ogr.Open(src)
-                lyr = ds.GetLayerByName(layer)
-                total = lyr.GetFeatureCount()
-                ds = None
+                info = pyogrio.read_info(src, layer=layer)
+                total = int(info["features"])
                 itens.append({
                     "uf": uf, "categoria": cat, "tipo": tipo,
                     "src": src, "layer": layer, "total": total,
@@ -197,60 +192,47 @@ def salvar_progresso(prog):
         json.dump(prog, f, ensure_ascii=False, indent=1)
 
 
-def _garantir_layer_saida(gpkg_path, layer_name):
-    """Cria o gpkg/layer de saida (com o schema fixo) se ainda nao existir."""
-    if os.path.exists(gpkg_path):
-        ds = ogr.Open(gpkg_path, update=1)
-    else:
-        drv = ogr.GetDriverByName("GPKG")
-        ds = drv.CreateDataSource(gpkg_path)
-    lyr = ds.GetLayerByName(layer_name)
-    if lyr is None:
-        srs = ogr.osr.SpatialReference()
-        srs.ImportFromEPSG(4674)
-        lyr = ds.CreateLayer(layer_name, srs=srs, geom_type=ogr.wkbMultiPolygon)
-        campos = [
-            ("uf", ogr.OFTString), ("cod_imovel", ogr.OFTString),
-            ("tipo", ogr.OFTString), ("bioma", ogr.OFTString),
-            ("classe", ogr.OFTString), ("ano", ogr.OFTInteger),
-            ("des_condic", ogr.OFTString), ("selecao_final", ogr.OFTString),
-            ("area_ha", ogr.OFTReal),
-        ]
-        for nome, tipo in campos:
-            lyr.CreateField(ogr.FieldDefn(nome, tipo))
-    ds = None
+_COLS_SAIDA = ["uf", "cod_imovel", "tipo", "bioma", "classe", "ano",
+               "des_condic", "selecao_final", "area_ha", "geometry"]
+
+
+def _para_multipolygon(geom):
+    """Forca MultiPolygon (mesmo tipo geometrico em todos os blocos gravados)."""
+    if geom is None:
+        return None
+    if geom.geom_type == "Polygon":
+        return MultiPolygon([geom])
+    return geom
 
 
 def _gravar_registros(gpkg_path, layer_name, registros):
-    """registros: lista de dicts com geometry(shapely)+campos. Append via OGR bruto."""
+    """registros: lista de dicts com geometry(shapely)+campos.
+
+    Grava via GeoPandas/pyogrio (sem depender do pacote osgeo): mode='w' na
+    primeira vez que a layer e criada, mode='a' (append) nas seguintes.
+    """
     if not registros:
         return
-    _garantir_layer_saida(gpkg_path, layer_name)
-    ds = ogr.Open(gpkg_path, update=1)
-    lyr = ds.GetLayerByName(layer_name)
-    defn = lyr.GetLayerDefn()
-    lyr.StartTransaction()
+    linhas = []
     for r in registros:
-        feat = ogr.Feature(defn)
-        wkb = shapely.to_wkb(r["geometry"])
-        geom = ogr.CreateGeometryFromWkb(wkb)
-        if geom.GetGeometryType() == ogr.wkbPolygon:
-            geom = ogr.ForceToMultiPolygon(geom)
-        feat.SetGeometry(geom)
-        for campo in ("uf", "cod_imovel", "tipo", "bioma", "classe",
-                      "des_condic", "selecao_final"):
-            v = r.get(campo)
-            if v is not None:
-                feat.SetField(campo, str(v))
-        if r.get("ano") is not None:
-            try:
-                feat.SetField("ano", int(r["ano"]))
-            except Exception:
-                pass
-        feat.SetField("area_ha", float(r.get("area_ha") or 0.0))
-        lyr.CreateFeature(feat)
-    lyr.CommitTransaction()
-    ds = None
+        linha = {c: r.get(c) for c in _COLS_SAIDA}
+        linha["geometry"] = _para_multipolygon(r["geometry"])
+        linhas.append(linha)
+
+    gdf = gpd.GeoDataFrame(linhas, geometry="geometry", crs=CRS_TRAB)
+    for c in ["uf", "cod_imovel", "tipo", "bioma", "classe", "des_condic", "selecao_final"]:
+        gdf[c] = gdf[c].astype("string")
+    gdf["ano"] = pd.to_numeric(gdf["ano"], errors="coerce").astype("Int64")
+    gdf["area_ha"] = gdf["area_ha"].astype(float)
+
+    existe = False
+    if os.path.exists(gpkg_path):
+        try:
+            existe = layer_name in set(pyogrio.list_layers(gpkg_path)[:, 0])
+        except Exception:
+            existe = False
+    modo = "a" if existe else "w"
+    gdf.to_file(gpkg_path, layer=layer_name, driver="GPKG", mode=modo)
 
 
 def processar_chunk(item, veg_layers, fid_lo, fid_hi):
