@@ -1,0 +1,26 @@
+[project]
+name = "cruzamento-vegetacao-secundaria"
+version = "0.1.0"
+description = "Cruzamento espacial entre a vegetação secundária (INPE) e as camadas temáticas APP/RL/AUR dos imóveis selecionados pela análise de conformidade SICAR × INCRA, com relatório de consistência e correção de geometrias."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Maurício Braga Meira" },
+    { name = "Geoconsult Ltda. (Consultoria especializada em geoinformação)" },
+]
+keywords = ["vegetação secundária", "INPE", "APP", "Reserva Legal", "SICAR", "INCRA", "geoprocessamento", "MRV"]
+dependencies = [
+    "geopandas>=1.0",
+    "shapely>=2.0",
+    "pyproj>=3.5",
+    "pyogrio>=0.7",
+    "pandas>=2.0",
+]
+
+[project.urls]
+Repository = "https://github.com/Geconsult-code/cruzamento_vegetacao-secundaria"
+
+# Este repositório é um conjunto de scripts (não um pacote instalável) — não
+# há [build-system]/[tool.setuptools] aqui. O pyproject.toml serve só para
+# fixar as dependências e os metadados do projeto (autoria, licença, versão).

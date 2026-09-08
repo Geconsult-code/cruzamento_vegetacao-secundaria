@@ -1,0 +1,27 @@
+# Dados (não versionar bases pesadas de vegetação/temáticas nem as saídas)
+*.gpkg
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+dados/
+saida/
+saidas/
+
+# Arquivos de progresso/estado (retomada entre execuções) e heartbeat
+_progresso_*.json
+_agregado_*.json
+heartbeat*.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Sistema
+.DS_Store
+Thumbs.db

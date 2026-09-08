@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "Se você usar este software, por favor cite-o conforme os metadados abaixo."
+title: "Cruzamento Vegetação Secundária × APP/RL/AUR"
+abstract: >-
+  Programa para cruzar espacialmente o mapa de vegetação secundária do INPE
+  com as camadas temáticas de APP, Reserva Legal e Área de Uso Restrito dos
+  imóveis selecionados pela análise de conformidade SICAR × INCRA, calculando
+  a interseção geométrica real e a área geodésica (GRS80) de cada fragmento,
+  por unidade da federação e por bioma.
+type: software
+authors:
+  - given-names: "Maurício"
+    family-names: "Braga Meira"
+    affiliation: "Geoconsult Ltda. (Consultoria especializada em geoinformação)"
+version: "0.1.0"
+date-released: "2026-09-08"
+license: MIT
+repository-code: "https://github.com/Geconsult-code/cruzamento_vegetacao-secundaria"
+url: "https://github.com/Geconsult-code/cruzamento_vegetacao-secundaria"
+keywords:
+  - vegetação secundária
+  - INPE
+  - APP
+  - Reserva Legal
+  - Área de Uso Restrito
+  - SICAR
+  - INCRA
+  - geoprocessamento
+  - MRV

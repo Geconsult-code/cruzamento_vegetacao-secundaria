@@ -1,0 +1,11 @@
+geopandas>=1.0
+shapely>=2.0
+pyproj>=3.5
+pyogrio>=0.7
+pandas>=2.0
+
+# relatorio_vegsec_selecionados.py e corrigir_geometrias_vegsec.py usam
+# adicionalmente as bindings Python do GDAL (pacote "osgeo"), que NÃO estão
+# neste requirements.txt porque a instalação via pip é frágil — instale via
+# conda: `conda install -c conda-forge gdal`. Já vêm prontas no Python do
+# QGIS, se preferir rodar por lá.
