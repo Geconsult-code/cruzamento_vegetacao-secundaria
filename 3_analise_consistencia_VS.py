@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
 r"""
-relatorio_vegsec_selecionados.py
+3_analise_consistencia_VS.py — passo 3 do workflow numerado do repositório
+cruzamento_vegetacao-secundaria.
 
-Gera o relatorio de consistencia (JSON, mesmo nome do geopackage) dos dois
+(Renomeado/adaptado de relatorio_vegsec_selecionados.py — agora audita os
+três arquivos de saída do passo 2, um por categoria de imóvel, em vez de
+só os dois anteriores.)
+
+Gera o relatorio de consistencia (JSON, mesmo nome do geopackage) dos tres
 arquivos de saida do cruzamento vegetacao secundaria x APP/RL/AUR
 "Selecionados":
-  Vegetacao_Secundaria\VS_Imoveis_Selecionados_Nao_Analisados.gpkg
+  Vegetacao_Secundaria\VS_Imoveis_Selecionados_Habilitados.gpkg
   Vegetacao_Secundaria\VS_Imoveis_Selecionados_Analisados.gpkg
+  Vegetacao_Secundaria\VS_Imoveis_Selecionados_Nao_Analisados.gpkg
 
 Para cada layer (VS_APP/RL/AUR_<categoria>): projecao (epsg), numero total de
 poligonos, numero de geometrias invalidas/sem geometria, area total (ha) e
@@ -17,6 +23,10 @@ geopackage (rapido, sem reabrir/reprojetar geometria).
 A contagem de invalidas e feita separadamente (via OGR IsValid(), em blocos
 de FID) porque isso exige ler a geometria. Resiliente/retomavel via
 _progresso_relatorio_vegsec.json.
+
+Os JSONs gerados aqui alimentam diretamente o passo 4
+(4_validacao_resultados_VS.py), que le a lista de camadas com geometrias
+invalidas e as corrige.
 """
 
 import os
@@ -33,8 +43,9 @@ BASE_ROOT = r"C:\Users\User\Dropbox\#CONSULTANCY\PLANAVEG\GEODATABASE\INCRA-CAR"
 VEG_DIR = os.path.join(BASE_ROOT, "Vegetacao_Secundaria")
 
 ARQUIVOS = {
-    "Nao_Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Nao_Analisados.gpkg"),
+    "Habilitados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Habilitados.gpkg"),
     "Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Analisados.gpkg"),
+    "Nao_Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Nao_Analisados.gpkg"),
 }
 
 PROGRESSO = os.path.join(VEG_DIR, "_progresso_relatorio_vegsec.json")
@@ -106,13 +117,15 @@ def contar_invalidas_chunk(path, layer, fidcol, lo, hi):
 
 
 def rodada_invalidas():
-    """Conta invalidas/sem-geometria de todas as 6 layers, em blocos de FID,
+    """Conta invalidas/sem-geometria de todas as layers, em blocos de FID,
     retomavel. Retorna True quando todas as layers estiverem completas."""
     t0 = time.time()
     prog = carregar_progresso()
 
     itens = []
     for categoria, path in ARQUIVOS.items():
+        if not os.path.exists(path):
+            continue
         ds = ogr.Open(path)
         for i in range(ds.GetLayerCount()):
             lyr = ds.GetLayerByIndex(i)
@@ -162,6 +175,9 @@ def rodada_invalidas():
 def gerar_jsons():
     prog = carregar_progresso()
     for categoria, path in ARQUIVOS.items():
+        if not os.path.exists(path):
+            print(f"[{categoria}] {path} nao existe, pulando")
+            continue
         layers_out = {}
         ds = ogr.Open(path)
         nomes = [ds.GetLayerByIndex(i).GetName() for i in range(ds.GetLayerCount())]

@@ -8,10 +8,12 @@ calculando a interseção geométrica real e a área geodésica (elipsoide
 GRS80) de cada fragmento, por unidade da federação e por bioma.
 
 Este repositório é a segunda etapa de um processo de duas etapas: primeiro
-roda-se a análise de conformidade SICAR × INCRA (repositório
-`analise_conformidade_sicar-incra`), que seleciona os imóveis analisados e
-não analisados por UF; depois, com esses imóveis já selecionados, roda-se
-este repositório para cruzá-los com a vegetação secundária.
+roda-se o pipeline de produção de seis passos do repositório
+`analise_conformidade_sicar-incra`, que categoriza e seleciona os imóveis
+**Habilitados**, **Analisados** (com pendência de notificação) e **Não
+Analisados** por UF, recortando também as camadas temáticas APP/RL/AUR de
+cada um; depois, com esses imóveis já selecionados, roda-se este
+repositório para cruzá-los com a vegetação secundária.
 
 ## Instalação
 
@@ -21,36 +23,59 @@ conda activate vegsec
 pip install -r requirements.txt
 ```
 
-`relatorio_vegsec_selecionados.py` e `corrigir_geometrias_vegsec.py` usam
+`3_analise_consistencia_VS.py` e `4_validacao_resultados_VS.py` usam
 adicionalmente as bindings Python do GDAL (pacote `osgeo`). A forma mais
 simples de obtê-las é `conda install -c conda-forge gdal` — ou rodar esses
 dois scripts pelo interpretador Python embutido no QGIS, que já as inclui.
-`cruzar_vegsec_selecionados.py` não depende de `osgeo` (usa apenas
-GeoPandas/pyogrio), justamente para poder rodar em ambientes mais simples.
+`1_processar_dados_VS.py` e `2_cruzamento_espacial_VS.py` não dependem de
+`osgeo` (usam apenas GeoPandas/pyogrio), justamente para poder rodar em
+ambientes mais simples.
 
 ## Uso
 
-Os três scripts principais formam um pipeline sequencial e cada um é
+Pipeline de produção (scripts numerados), sequencial e cada passo
 resiliente/retomável: se a execução for interrompida (fechar o terminal,
 travamento da máquina, etc.), basta rodar o mesmo comando de novo — cada um
 guarda seu progresso em um arquivo `_progresso_*.json` e continua exatamente
 de onde parou, sem reprocessar nem duplicar nada já concluído.
 
-### 1. Cruzamento espacial
+### 1. Processamento da vegetação secundária por UF
 
 ```bash
-python cruzar_vegsec_selecionados.py
+python 1_processar_dados_VS.py
 ```
 
-Lê os imóveis selecionados nos geopackages de conformidade
-(`UF_Conformidade_Imoveis_Nao_Analisados` e
-`UF_Conformidade_Imoveis_Analisados`, gerados pelo repositório de
-conformidade), cruza cada camada temática (APP/RL/AUR) com a vegetação
-secundária do bioma correspondente e grava o resultado em:
+Recorta a vegetação secundária nacional do INPE (`Vegetacao_Secundaria_2022.gpkg`,
+6 camadas por bioma) para o bounding box de cada UF (união dos limites dos
+imóveis já processados pelo repositório `analise_conformidade_sicar-incra`),
+juntando os biomas num único arquivo/camada por estado — com `bioma`, `classe`
+e `ano` como colunas de atributo — e gravando-o **no mesmo diretório dos
+outros dados do repositório de análise_conformidade_sicar-incra**:
 
 ```
-Vegetacao_Secundaria/VS_Imoveis_Selecionados_Nao_Analisados.gpkg
+Analise_Conformidade/dados_saída_<UF>/<UF>_geopackage/<UF>_Vegetacao_Secundaria.gpkg
+   layer: VS_<UF>
+```
+
+Esse recorte prévio por UF é consumido pelo passo 2, evitando reler os 6
+biomas inteiros do INPE a cada categoria/tipo de imóvel.
+
+### 2. Cruzamento espacial
+
+```bash
+python 2_cruzamento_espacial_VS.py
+```
+
+Lê os imóveis selecionados de cada categoria — `<UF>_Imoveis_Privados_Habilitados`,
+`<UF>_Conformidade_Imoveis_Analisados` e `<UF>_Conformidade_Imoveis_Nao_Analisados`,
+gerados pelo repositório de conformidade —, cruza cada camada temática
+(APP/RL/AUR) já recortada para os imóveis selecionados com a vegetação
+secundária pré-recortada da UF (passo 1) e grava o resultado em:
+
+```
+Vegetacao_Secundaria/VS_Imoveis_Selecionados_Habilitados.gpkg
 Vegetacao_Secundaria/VS_Imoveis_Selecionados_Analisados.gpkg
+Vegetacao_Secundaria/VS_Imoveis_Selecionados_Nao_Analisados.gpkg
 ```
 
 cada um com até três camadas (`VS_APP_<categoria>`, `VS_RL_<categoria>`,
@@ -58,41 +83,39 @@ cada um com até três camadas (`VS_APP_<categoria>`, `VS_RL_<categoria>`,
 polígono temático e o polígono de vegetação secundária, com a área
 recalculada em hectares (geodésica, GRS80).
 
-### 2. Relatório de consistência
+### 3. Análise de consistência
 
 ```bash
-python relatorio_vegsec_selecionados.py
+python 3_analise_consistencia_VS.py
 ```
 
-Gera, para cada geopackage de saída, um JSON de mesmo nome
+Gera, para cada geopackage de saída do passo 2, um JSON de mesmo nome
 (`VS_Imoveis_Selecionados_<categoria>.json`) com estatísticas por camada:
 número de polígonos, número de geometrias inválidas, número de feições sem
 geometria, área total (ha) e área agregada por UF e por bioma.
 
-### 3. Correção de geometrias inválidas (se necessário)
+### 4. Validação dos resultados (correção de geometrias + verificação final)
 
 ```bash
-python corrigir_geometrias_vegsec.py
+python 4_validacao_resultados_VS.py
 ```
 
-Só é preciso rodar se o relatório do passo 2 acusar
-`num_geometrias_invalidas > 0` em alguma camada. Lê a lista de camadas
-afetadas diretamente dos JSONs de relatório, repara cada geometria inválida
-com `shapely.make_valid()` (fallback `buffer(0)`) e regrava só a geometria
-da(s) feição(ões) afetada(s) — nunca adiciona nem remove linhas. Depois de
-corrigir, rode o passo 2 de novo para confirmar que `num_geometrias_invalidas`
-zerou em todas as camadas.
+Só tem efeito se o relatório do passo 3 acusar `num_geometrias_invalidas > 0`
+em alguma camada — nesse caso corrige cada geometria inválida com
+`shapely.make_valid()` (fallback `buffer(0)`), regravando só a geometria
+da(s) feição(ões) afetada(s) (nunca adiciona nem remove linhas), e em
+seguida reescaneia automaticamente todas as camadas corrigidas para
+confirmar que `num_geometrias_invalidas` zerou em todas elas.
 
 ### Utilitário auxiliar
 
-`dissolver_car_total.py` — dissolve/agrega camadas do CAR por critérios
-próprios do projeto; não faz parte do pipeline principal de cruzamento, é
-usado sob demanda.
+`dissolver_car_total.py` foi removido deste repositório (não é mais
+necessário no pipeline).
 
 ## Validação
 
 Os totais de área e contagem de polígonos por UF/bioma produzidos por
-`cruzar_vegsec_selecionados.py` foram conferidos contra os números
+`2_cruzamento_espacial_VS.py` foram conferidos contra os números
 históricos de execuções anteriores do mesmo cruzamento (mesma metodologia,
 antes da reorganização deste repositório), com divergência compatível
 apenas com a atualização da base de imóveis selecionados de entrada. O
@@ -104,10 +127,10 @@ registrada por camada, por UF e por bioma.
 
 ```
 cruzamento_vegetacao-secundaria/
-├── cruzar_vegsec_selecionados.py       # cruzamento espacial (etapa 1)
-├── relatorio_vegsec_selecionados.py    # relatório de consistência (etapa 2)
-├── corrigir_geometrias_vegsec.py       # correção de geometrias inválidas (etapa 3)
-├── dissolver_car_total.py              # utilitário auxiliar
+├── 1_processar_dados_VS.py             # recorte da VS por UF (passo 1)
+├── 2_cruzamento_espacial_VS.py         # cruzamento espacial (passo 2)
+├── 3_analise_consistencia_VS.py        # relatório de consistência (passo 3)
+├── 4_validacao_resultados_VS.py        # correção de geometrias + verificação (passo 4)
 ├── docs/
 │   └── metodologia.md                  # metodologia científica detalhada
 ├── requirements.txt

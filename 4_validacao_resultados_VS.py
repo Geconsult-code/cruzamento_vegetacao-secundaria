@@ -1,12 +1,20 @@
 # -*- coding: utf-8 -*-
 r"""
-corrigir_geometrias_vegsec.py
+4_validacao_resultados_VS.py — passo 4 (e ultimo) do workflow numerado do
+repositório cruzamento_vegetacao-secundaria.
 
-Regrava (in-place) as geometrias INVALIDAS identificadas pelo relatorio de
-consistencia (relatorio_vegsec_selecionados.py) diretamente nos dois
-geopackages de saida do cruzamento vegetacao secundaria x APP/RL/AUR:
-    Vegetacao_Secundaria\VS_Imoveis_Selecionados_Nao_Analisados.gpkg
+(Renomeado/adaptado de corrigir_geometrias_vegsec.py — agora cobre as tres
+categorias de imovel, e passa a rodar tambem a verificacao final
+automaticamente ao fim da correcao, no mesmo padrao de 3 etapas ja usado
+em 6_validacao_resultados.py do repositorio analise_conformidade_sicar-incra.)
+
+ETAPA 1 — CORRECAO: regrava (in-place) as geometrias INVALIDAS
+identificadas pelo relatorio de consistencia (passo 3,
+3_analise_consistencia_VS.py) diretamente nos tres geopackages de saida do
+cruzamento vegetacao secundaria x APP/RL/AUR:
+    Vegetacao_Secundaria\VS_Imoveis_Selecionados_Habilitados.gpkg
     Vegetacao_Secundaria\VS_Imoveis_Selecionados_Analisados.gpkg
+    Vegetacao_Secundaria\VS_Imoveis_Selecionados_Nao_Analisados.gpkg
 
 Usa make_valid() com fallback buffer(0) (mesmo padrao ja validado no projeto
 de conformidade, incl. no caso patologico do Amazonas). NAO mexe em
@@ -15,10 +23,14 @@ quem esta invalido, nunca cria ou remove linha) - o atributo area_ha da(s)
 poucas feicao(oes) corrigida(s) NAO e recalculado (o reparo tipico de uma
 invalidade e uma correcao subpixel, sem efeito pratico na area).
 
+ETAPA 2 — VERIFICACAO (produção do relatório final): reescaneia as camadas
+corrigidas e confirma que zero geometrias seguem invalidas, imprimindo o
+resultado (lista de camadas ainda problematicas, se houver).
+
 Requer as bindings Python do GDAL (pacote "osgeo") - ver requirements.txt /
 README. Le a lista de camadas a corrigir diretamente dos JSONs de relatorio
-(rode relatorio_vegsec_selecionados.py antes). Resiliente/retomavel via
-_progresso_correcao_vegsec.json (guarda o ultimo FID processado por
+do passo 3 (rode 3_analise_consistencia_VS.py antes). Resiliente/retomavel
+via _progresso_correcao_vegsec.json (guarda o ultimo FID processado por
 camada). Cada chamada de rodada() processa um orcamento de tempo
 (BUDGET_S) e para - rodar de novo continua exatamente de onde parou.
 """
@@ -37,8 +49,9 @@ BASE_ROOT = r"C:\Users\User\Dropbox\#CONSULTANCY\PLANAVEG\GEODATABASE\INCRA-CAR"
 VEG_DIR = os.path.join(BASE_ROOT, "Vegetacao_Secundaria")
 
 ARQUIVOS = {
-    "Nao_Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Nao_Analisados.gpkg"),
+    "Habilitados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Habilitados.gpkg"),
     "Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Analisados.gpkg"),
+    "Nao_Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Nao_Analisados.gpkg"),
 }
 
 PROGRESSO = os.path.join(VEG_DIR, "_progresso_correcao_vegsec.json")
@@ -48,15 +61,15 @@ BUDGET_S = 38     # orcamento de tempo por chamada de rodada()
 
 
 def carregar_worklist():
-    """Le os JSONs de relatorio (mesmo nome do gpkg) e monta a lista de
-    camadas com num_geometrias_invalidas > 0."""
+    """Le os JSONs de relatorio (mesmo nome do gpkg, gerados pelo passo 3) e
+    monta a lista de camadas com num_geometrias_invalidas > 0."""
     itens = []
     for categoria, path in ARQUIVOS.items():
         json_path = os.path.splitext(path)[0] + ".json"
         if not os.path.isfile(json_path):
             raise FileNotFoundError(
                 f"Relatorio nao encontrado: {json_path} - rode "
-                f"relatorio_vegsec_selecionados.py antes.")
+                f"3_analise_consistencia_VS.py antes.")
         with open(json_path, "r", encoding="utf-8") as f:
             rel = json.load(f)
         for layer, info in rel["layers"].items():
@@ -210,6 +223,11 @@ def verificar():
 
 
 if __name__ == "__main__":
+    print("="*70 + "\nETAPA 1/2 — CORRECAO DE GEOMETRIAS\n" + "="*70)
     while not rodada():
         pass
+
+    print("\n" + "="*70 + "\nETAPA 2/2 — VERIFICACAO\n" + "="*70)
+    verificar()
+
     print("\nLOTE COMPLETO.")

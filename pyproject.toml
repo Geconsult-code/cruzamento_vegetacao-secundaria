@@ -1,7 +1,7 @@
 [project]
 name = "cruzamento-vegetacao-secundaria"
-version = "0.1.0"
-description = "Cruzamento espacial entre a vegetação secundária (INPE) e as camadas temáticas APP/RL/AUR dos imóveis selecionados pela análise de conformidade SICAR × INCRA, com relatório de consistência e correção de geometrias."
+version = "0.2.0"
+description = "Pipeline de produção (4 passos numerados) para cruzamento espacial entre a vegetação secundária (INPE) e as camadas temáticas APP/RL/AUR dos imóveis Habilitados, Analisados e Não Analisados selecionados pela análise de conformidade SICAR × INCRA, com relatório de consistência e validação final."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
