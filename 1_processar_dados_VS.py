@@ -14,14 +14,14 @@ cruzar_vegsec_selecionados.py — recorte por bbox, não por limite
 administrativo exato). O bbox de cada UF é a união dos limites
 (total_bounds) dos imóveis já processados pelo repositório
 analise_conformidade_sicar-incra
-(<UF>_Imoveis_Privados_{Habilitados,Analisados,Nao_Analisados}.gpkg, em
+(<UF>_Imoveis_Selecionados_Habilitados.gpkg + <UF>_Imoveis_Privados_{Analisados,Nao_Analisados}.gpkg, em
 Analise_Conformidade\dados_saída_<UF>\<UF>_geopackage\) — evita depender
 de uma malha de limites estaduais à parte.
 
 Saída (no mesmo diretório dos outros dados do repositório de
 análise_conformidade_sicar-incra, ao lado de <UF>_Imoveis_Privados_*.gpkg
 etc.):
-  Analise_Conformidade\dados_saída_<UF>\<UF>_geopackage\<UF>_Vegetacao_Secundaria.gpkg
+  Analise_Conformidade\dados_saída_<UF>\<UF>_geopackage\<UF>_Vegetacao_Secundaria_2022.gpkg
     layer: VS_<UF>
     campos: bioma, classe, ano, geometry
 
@@ -146,7 +146,13 @@ def bbox_uf(uf: str):
     pasta_gpkg = os.path.join(PASTA_ANALISE, f"dados_saída_{uf}", f"{uf}_geopackage")
     xmins, ymins, xmaxs, ymaxs = [], [], [], []
     for cat in CATEGORIAS_IMOVEIS:
-        caminho = os.path.join(pasta_gpkg, f"{uf}_Imoveis_Privados_{cat}.gpkg")
+        # Habilitados foi renomeado de _Imoveis_Privados_ para _Imoveis_Selecionados_
+        # (10/09/2026) -- os demais buckets continuam com o nome antigo.
+        if cat == "Habilitados":
+            nome_arquivo = f"{uf}_Imoveis_Selecionados_Habilitados.gpkg"
+        else:
+            nome_arquivo = f"{uf}_Imoveis_Privados_{cat}.gpkg"
+        caminho = os.path.join(pasta_gpkg, nome_arquivo)
         if not os.path.exists(caminho):
             continue
         layer = f"CAR_{uf}_Imoveis_{cat}"
@@ -168,7 +174,7 @@ def bbox_uf(uf: str):
 
 def processar_uf(uf: str) -> dict:
     pasta_gpkg = os.path.join(PASTA_ANALISE, f"dados_saída_{uf}", f"{uf}_geopackage")
-    saida = os.path.join(pasta_gpkg, f"{uf}_Vegetacao_Secundaria.gpkg")
+    saida = os.path.join(pasta_gpkg, f"{uf}_Vegetacao_Secundaria_2022.gpkg")
 
     bbox = bbox_uf(uf)
     if bbox is None:

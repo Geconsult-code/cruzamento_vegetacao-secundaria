@@ -13,7 +13,7 @@ passo 1: 1_processar_dados_VS.py) com as camadas APP/RL/AUR "Selecionados"
 já recortadas para os imóveis de cada categoria (saída do passo 5 do
 repositório analise_conformidade_sicar-incra):
 
-  Habilitados      -> <UF>_Imoveis_Privados_Habilitados.gpkg
+  Habilitados      -> <UF>_Imoveis_Selecionados_Habilitados.gpkg
                        layer CAR_<UF>_{APP,RL,AUR}_Selecionados_Habilitados
   Analisados       -> <UF>_Conformidade_Imoveis_Analisados.gpkg
                        layer CAR_<UF>_{APP,RL,AUR}_Selecionados_Analisados
@@ -25,7 +25,7 @@ repositório analise_conformidade_sicar-incra):
 Para cada UF x categoria x tipo (APP/RL/AUR):
   1. lê a camada temática (uma única vez por item, cacheada em memória
      enquanto o item não muda) e a vegetação secundária JÁ PRÉ-RECORTADA
-     daquela UF pelo passo 1 (<UF>_Vegetacao_Secundaria.gpkg, layer
+     daquela UF pelo passo 1 (<UF>_Vegetacao_Secundaria_2022.gpkg, layer
      VS_<UF> — cacheada por UF, reaproveitada entre categorias/tipos do
      mesmo estado, já que não depende deles);
   2. fatia o tema (já em memória) em blocos de CHUNK feições (por posição,
@@ -83,7 +83,7 @@ TIPOS = ["APP", "RL", "AUR"]
 # Arquivo de origem (imóveis + temáticas selecionadas), por categoria, em
 # dados_saída_<UF>\<UF>_geopackage\ — layer sempre CAR_<UF>_<tipo>_Selecionados_<categoria>.
 ARQUIVO_ORIGEM = {
-    "Habilitados": "{uf}_Imoveis_Privados_Habilitados.gpkg",
+    "Habilitados": "{uf}_Imoveis_Selecionados_Habilitados.gpkg",
     "Analisados": "{uf}_Conformidade_Imoveis_Analisados.gpkg",
     "Nao_Analisados": "{uf}_Conformidade_Imoveis_Nao_Analisados.gpkg",
 }
@@ -176,7 +176,7 @@ def carregar_worklist():
     itens = []
     for uf in UFS:
         pasta_gpkg = os.path.join(BASE_ANALISE, f"dados_saída_{uf}", f"{uf}_geopackage")
-        veg_uf = os.path.join(pasta_gpkg, f"{uf}_Vegetacao_Secundaria.gpkg")
+        veg_uf = os.path.join(pasta_gpkg, f"{uf}_Vegetacao_Secundaria_2022.gpkg")
         if not os.path.exists(veg_uf):
             continue
         for cat in CATEGORIAS:
