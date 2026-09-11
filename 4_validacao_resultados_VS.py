@@ -12,9 +12,9 @@ ETAPA 1 — CORRECAO: regrava (in-place) as geometrias INVALIDAS
 identificadas pelo relatorio de consistencia (passo 3,
 3_analise_consistencia_VS.py) diretamente nos tres geopackages de saida do
 cruzamento vegetacao secundaria x APP/RL/AUR:
-    Vegetacao_Secundaria\VS_Imoveis_Selecionados_Habilitados.gpkg
-    Vegetacao_Secundaria\VS_Imoveis_Selecionados_Analisados.gpkg
-    Vegetacao_Secundaria\VS_Imoveis_Selecionados_Nao_Analisados.gpkg
+    Vegetacao_Secundaria\VS_2022_Imoveis_Selecionados_Habilitados.gpkg
+    Vegetacao_Secundaria\VS_2022_Imoveis_Selecionados_Analisados.gpkg
+    Vegetacao_Secundaria\VS_2022_Imoveis_Selecionados_Nao_Analisados.gpkg
 
 Usa make_valid() com fallback buffer(0) (mesmo padrao ja validado no projeto
 de conformidade, incl. no caso patologico do Amazonas). NAO mexe em
@@ -49,9 +49,9 @@ BASE_ROOT = r"C:\Users\User\Dropbox\#CONSULTANCY\PLANAVEG\GEODATABASE\INCRA-CAR"
 VEG_DIR = os.path.join(BASE_ROOT, "Vegetacao_Secundaria")
 
 ARQUIVOS = {
-    "Habilitados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Habilitados.gpkg"),
-    "Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Analisados.gpkg"),
-    "Nao_Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Nao_Analisados.gpkg"),
+    "Habilitados": os.path.join(VEG_DIR, "VS_2022_Imoveis_Selecionados_Habilitados.gpkg"),
+    "Analisados": os.path.join(VEG_DIR, "VS_2022_Imoveis_Selecionados_Analisados.gpkg"),
+    "Nao_Analisados": os.path.join(VEG_DIR, "VS_2022_Imoveis_Selecionados_Nao_Analisados.gpkg"),
 }
 
 PROGRESSO = os.path.join(VEG_DIR, "_progresso_correcao_vegsec.json")

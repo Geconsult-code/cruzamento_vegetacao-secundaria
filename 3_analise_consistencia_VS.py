@@ -10,9 +10,9 @@ só os dois anteriores.)
 Gera o relatorio de consistencia (JSON, mesmo nome do geopackage) dos tres
 arquivos de saida do cruzamento vegetacao secundaria x APP/RL/AUR
 "Selecionados":
-  Vegetacao_Secundaria\VS_Imoveis_Selecionados_Habilitados.gpkg
-  Vegetacao_Secundaria\VS_Imoveis_Selecionados_Analisados.gpkg
-  Vegetacao_Secundaria\VS_Imoveis_Selecionados_Nao_Analisados.gpkg
+  Vegetacao_Secundaria\VS_2022_Imoveis_Selecionados_Habilitados.gpkg
+  Vegetacao_Secundaria\VS_2022_Imoveis_Selecionados_Analisados.gpkg
+  Vegetacao_Secundaria\VS_2022_Imoveis_Selecionados_Nao_Analisados.gpkg
 
 Para cada layer (VS_APP/RL/AUR_<categoria>): projecao (epsg), numero total de
 poligonos, numero de geometrias invalidas/sem geometria, area total (ha) e
@@ -43,9 +43,9 @@ BASE_ROOT = r"C:\Users\User\Dropbox\#CONSULTANCY\PLANAVEG\GEODATABASE\INCRA-CAR"
 VEG_DIR = os.path.join(BASE_ROOT, "Vegetacao_Secundaria")
 
 ARQUIVOS = {
-    "Habilitados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Habilitados.gpkg"),
-    "Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Analisados.gpkg"),
-    "Nao_Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Nao_Analisados.gpkg"),
+    "Habilitados": os.path.join(VEG_DIR, "VS_2022_Imoveis_Selecionados_Habilitados.gpkg"),
+    "Analisados": os.path.join(VEG_DIR, "VS_2022_Imoveis_Selecionados_Analisados.gpkg"),
+    "Nao_Analisados": os.path.join(VEG_DIR, "VS_2022_Imoveis_Selecionados_Nao_Analisados.gpkg"),
 }
 
 PROGRESSO = os.path.join(VEG_DIR, "_progresso_relatorio_vegsec.json")

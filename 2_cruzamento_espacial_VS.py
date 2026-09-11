@@ -40,11 +40,11 @@ Para cada UF x categoria x tipo (APP/RL/AUR):
 
 Saída (3 arquivos — Habilitados é novo; Não_Analisados/Analisados mantêm
 o nome já em produção):
-  Vegetacao_Secundaria\VS_CAR_Imoveis_Selecionados_Habilitados.gpkg
+  Vegetacao_Secundaria\VS_2022_Imoveis_Selecionados_Habilitados.gpkg
      layers: VS_APP_Habilitados, VS_RL_Habilitados, VS_AUR_Habilitados
-  Vegetacao_Secundaria\VS_Imoveis_Selecionados_Analisados.gpkg
+  Vegetacao_Secundaria\VS_2022_Imoveis_Selecionados_Analisados.gpkg
      layers: VS_APP_Analisados, VS_RL_Analisados, VS_AUR_Analisados
-  Vegetacao_Secundaria\VS_Imoveis_Selecionados_Nao_Analisados.gpkg
+  Vegetacao_Secundaria\VS_2022_Imoveis_Selecionados_Nao_Analisados.gpkg
      layers: VS_APP_Nao_Analisados, VS_RL_Nao_Analisados, VS_AUR_Nao_Analisados
 
 Campos gravados por polígono: uf, cod_imovel, tipo, bioma, classe, ano,
@@ -89,9 +89,9 @@ ARQUIVO_ORIGEM = {
 }
 
 OUT_ARQUIVO = {
-    "Habilitados": os.path.join(VEG_DIR, "VS_CAR_Imoveis_Selecionados_Habilitados.gpkg"),
-    "Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Analisados.gpkg"),
-    "Nao_Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Nao_Analisados.gpkg"),
+    "Habilitados": os.path.join(VEG_DIR, "VS_2022_Imoveis_Selecionados_Habilitados.gpkg"),
+    "Analisados": os.path.join(VEG_DIR, "VS_2022_Imoveis_Selecionados_Analisados.gpkg"),
+    "Nao_Analisados": os.path.join(VEG_DIR, "VS_2022_Imoveis_Selecionados_Nao_Analisados.gpkg"),
 }
 
 
