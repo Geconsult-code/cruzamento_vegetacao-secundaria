@@ -14,7 +14,7 @@ cruzar_vegsec_selecionados.py — recorte por bbox, não por limite
 administrativo exato). O bbox de cada UF é a união dos limites
 (total_bounds) dos imóveis já processados pelo repositório
 analise_conformidade_sicar-incra
-(<UF>_Imoveis_Selecionados_Habilitados.gpkg + <UF>_Imoveis_Privados_{Analisados,Nao_Analisados}.gpkg, em
+(<UF>_CAR_Imoveis_Selecionados_Habilitados.gpkg + <UF>_Imoveis_Privados_{Analisados,Nao_Analisados}.gpkg, em
 Analise_Conformidade\dados_saída_<UF>\<UF>_geopackage\) — evita depender
 de uma malha de limites estaduais à parte.
 
@@ -149,7 +149,7 @@ def bbox_uf(uf: str):
         # Habilitados foi renomeado de _Imoveis_Privados_ para _Imoveis_Selecionados_
         # (10/09/2026) -- os demais buckets continuam com o nome antigo.
         if cat == "Habilitados":
-            nome_arquivo = f"{uf}_Imoveis_Selecionados_Habilitados.gpkg"
+            nome_arquivo = f"{uf}_CAR_Imoveis_Selecionados_Habilitados.gpkg"
         else:
             nome_arquivo = f"{uf}_Imoveis_Privados_{cat}.gpkg"
         caminho = os.path.join(pasta_gpkg, nome_arquivo)

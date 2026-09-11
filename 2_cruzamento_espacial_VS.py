@@ -13,7 +13,7 @@ passo 1: 1_processar_dados_VS.py) com as camadas APP/RL/AUR "Selecionados"
 já recortadas para os imóveis de cada categoria (saída do passo 5 do
 repositório analise_conformidade_sicar-incra):
 
-  Habilitados      -> <UF>_Imoveis_Selecionados_Habilitados.gpkg
+  Habilitados      -> <UF>_CAR_Imoveis_Selecionados_Habilitados.gpkg
                        layer CAR_<UF>_{APP,RL,AUR}_Selecionados_Habilitados
   Analisados       -> <UF>_Conformidade_Imoveis_Analisados.gpkg
                        layer CAR_<UF>_{APP,RL,AUR}_Selecionados_Analisados
@@ -40,7 +40,7 @@ Para cada UF x categoria x tipo (APP/RL/AUR):
 
 Saída (3 arquivos — Habilitados é novo; Não_Analisados/Analisados mantêm
 o nome já em produção):
-  Vegetacao_Secundaria\VS_Imoveis_Selecionados_Habilitados.gpkg
+  Vegetacao_Secundaria\VS_CAR_Imoveis_Selecionados_Habilitados.gpkg
      layers: VS_APP_Habilitados, VS_RL_Habilitados, VS_AUR_Habilitados
   Vegetacao_Secundaria\VS_Imoveis_Selecionados_Analisados.gpkg
      layers: VS_APP_Analisados, VS_RL_Analisados, VS_AUR_Analisados
@@ -83,13 +83,13 @@ TIPOS = ["APP", "RL", "AUR"]
 # Arquivo de origem (imóveis + temáticas selecionadas), por categoria, em
 # dados_saída_<UF>\<UF>_geopackage\ — layer sempre CAR_<UF>_<tipo>_Selecionados_<categoria>.
 ARQUIVO_ORIGEM = {
-    "Habilitados": "{uf}_Imoveis_Selecionados_Habilitados.gpkg",
+    "Habilitados": "{uf}_CAR_Imoveis_Selecionados_Habilitados.gpkg",
     "Analisados": "{uf}_Conformidade_Imoveis_Analisados.gpkg",
     "Nao_Analisados": "{uf}_Conformidade_Imoveis_Nao_Analisados.gpkg",
 }
 
 OUT_ARQUIVO = {
-    "Habilitados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Habilitados.gpkg"),
+    "Habilitados": os.path.join(VEG_DIR, "VS_CAR_Imoveis_Selecionados_Habilitados.gpkg"),
     "Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Analisados.gpkg"),
     "Nao_Analisados": os.path.join(VEG_DIR, "VS_Imoveis_Selecionados_Nao_Analisados.gpkg"),
 }
