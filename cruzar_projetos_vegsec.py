@@ -104,7 +104,7 @@ PROJETOS = [
 # Validacao: comeca so pelo arquivo menor (ICMBio_GEF_Terrestre, ~700 feicoes no total,
 # inclui as duas camadas Pantanal sem CRS reconhecido -- bom teste do fallback de CRS).
 # Esvaziar (SOMENTE_ESTES = []) para rodar todos os 6 arquivos.
-SOMENTE_ESTES = ["ICMBio_Projetos_GEF_Terrestre_2026_com_area.gpkg"]
+SOMENTE_ESTES = []
 
 VERSOES = ["2022", "2022-2024"]  # quais versoes gerar
 
