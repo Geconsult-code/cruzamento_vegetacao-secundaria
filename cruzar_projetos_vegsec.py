@@ -260,7 +260,37 @@ def ler_camada_projeto(caminho, nome_layer):
             gdf = gdf.set_crs(crs, allow_override=True)
     if gdf.crs.to_string() != CRS_ALVO:
         gdf = gdf.to_crs(CRS_ALVO)
+    # Muitos dos arquivos de projeto ja trazem seu proprio campo 'area_ha' (area do
+    # poligono INTEIRO do projeto). O cruzamento grava um 'area_ha' NOVO (area so do
+    # pedaco resultante da interseccao) -- para nao apagar silenciosamente a area
+    # original, ela e preservada com outro nome antes de prosseguir.
+    for c in list(gdf.columns):
+        if c != "geometry" and c.lower() == "area_ha":
+            gdf = gdf.rename(columns={c: "area_ha_projeto_orig"})
     return gdf
+
+
+def _colunas_unicas_ci(colunas):
+    """Garante nomes de coluna unicos ignorando maiusculas/minusculas (o GeoPackage
+    trata nomes de campo como case-insensitive, mesmo que o pandas nao) e limitados a
+    63 caracteres (limite do GeoPackage). Colisoes viram <nome>_2, <nome>_3 etc."""
+    vistas = {}
+    novas = []
+    for c in colunas:
+        base = str(c)[:60]
+        chave = base.lower()
+        if chave not in vistas:
+            vistas[chave] = 1
+            novas.append(base)
+        else:
+            vistas[chave] += 1
+            candidato = f"{base}_{vistas[chave]}"
+            while candidato.lower() in vistas:
+                vistas[chave] += 1
+                candidato = f"{base}_{vistas[chave]}"
+            vistas[candidato.lower()] = 1
+            novas.append(candidato)
+    return novas
 
 
 # ============================== LEITURA DE VEG. SECUNDARIA POR BBOX ==============================
@@ -408,6 +438,19 @@ def cruzar_camada(caminho_projeto, nome_layer, versao):
         return None
 
     saida = gpd.GeoDataFrame(pd.concat(resultados, ignore_index=True), crs=CRS_ALVO)
+
+    # A vegetacao secundaria 2024 tem campos que a 2022 nao tem (ex.: um campo
+    # 'Bioma' proprio) -- prefixados com vs_, podem colidir (ignorando maiusculas/
+    # minusculas, que e como o GeoPackage compara nomes de campo) com vs_bioma/
+    # vs_fonte que este script adiciona. Sem esse saneamento, a gravacao falha com
+    # "Error adding field" (foi o que aconteceu nas camadas que cruzam com VS 2024).
+    colunas_antes = list(saida.columns)
+    colunas_novas = _colunas_unicas_ci(colunas_antes)
+    if colunas_novas != colunas_antes:
+        renomeadas = {a: n for a, n in zip(colunas_antes, colunas_novas) if a != n}
+        print(f"    [aviso] colunas renomeadas por colisao case-insensitive: {renomeadas}")
+        saida.columns = colunas_novas
+
     saida["area_ha"] = saida.geometry.apply(area_ha_geodesica)
     dt = time.time() - t0
     print(f"    total: {len(saida)} pedacos / {saida['area_ha'].sum():,.1f} ha  ({dt:.1f}s)")
