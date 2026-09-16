@@ -112,7 +112,7 @@ PROJETOS = [
 # Validacao: comeca so pelo arquivo NOVO (Pro-Manguezal, ainda nao testado com
 # este pipeline; pequeno, 7.661 feicoes, CRS ja correto -- bom primeiro teste).
 # Esvaziar (SOMENTE_ESTES = []) para rodar todos os 7 arquivos.
-SOMENTE_ESTES = ["Pro-Manguezal_IBAMA20260508.gpkg"]
+SOMENTE_ESTES = []
 
 SUFIXO_SAIDA = "qualificado"  # <nome_arquivo>_x_VegSec_qualificado.gpkg
 
