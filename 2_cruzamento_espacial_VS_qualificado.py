@@ -345,6 +345,13 @@ def rodada():
             st["fid_proximo"] = hi
             st["total_pedacos"] += n_pedacos
 
+            # Salva progresso a CADA chunk (nao so no checkpoint de orcamento ou no
+            # fim do item) -- protege contra escrita duplicada se o processo cair no
+            # meio de um item: um rerun retoma exatamente do fid_proximo salvo, em vez
+            # de reprocessar (e reescrever) chunks que ja foram gravados no gpkg.
+            prog[chave] = st
+            salvar_progresso(prog)
+
             if total == 0:
                 break
 
