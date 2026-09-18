@@ -131,7 +131,7 @@ PROJETOS = [
 # Pampa/Caatinga -- testa fonte 2024 qualificada E 2022 qualificada no mesmo
 # arquivo, alem do fallback de CRS das camadas Pantanal).
 # Esvaziar (SOMENTE_ESTES = []) para rodar todos os 7 arquivos.
-SOMENTE_ESTES = ["ICMBio_Projetos_GEF_Terrestre_2026_com_area.gpkg"]
+SOMENTE_ESTES = []
 
 SUFIXO_SAIDA = "2022-2024_qualificado"  # <nome_arquivo>_x_VegSec_2022-2024_qualificado.gpkg
 
